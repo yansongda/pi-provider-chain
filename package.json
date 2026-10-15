@@ -1,0 +1,68 @@
+{
+  "name": "@yansongda/pi-provider-fallback",
+  "version": "0.1.0",
+  "description": "Pi 扩展：虚拟模型 + 额度耗尽自动降级（quota / subscription / overdue 类错误自动切到备用 provider）",
+  "type": "module",
+  "license": "MIT",
+  "author": "yansongda",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yansongda/pi-provider-fallback.git"
+  },
+  "homepage": "https://github.com/yansongda/pi-provider-fallback#readme",
+  "bugs": {
+    "url": "https://github.com/yansongda/pi-provider-fallback/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "pi-extension",
+    "model-fallback",
+    "provider-fallback",
+    "quota",
+    "router"
+  ],
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "files": [
+    "extensions",
+    "src",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions/provider-fallback.ts"
+    ]
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^1.2.0",
+    "@earendil-works/pi-tui": "^1.2.0",
+    "@types/node": "^24.0.0",
+    "typescript": "^7.0.0"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "bun run test && bun run typecheck",
+    "pack": "bun pm pack --dry-run"
+  }
+}
