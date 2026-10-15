@@ -47,10 +47,10 @@ pi list
 | 字段 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `virtualProvider` | ✅ | - | 虚拟模型挂载的 provider id（可复用已有 provider，也可以是新 id） |
-| `models[].id` | ✅ | - | 虚拟模型 id，不能与 `virtualProvider` 下物理模型 id 相同 |
-| `models[].name` | - | `models[].id` |  `/model` 列表里显示的名字 |
-| `models[].thinkingLevels` | - | 全部档位 | 选择时可用的思考档位 |
-| `models[].contextWindow` / `maxTokens` | - | 未声明 | 首个响应前展示的限值 |
+| `models[].id` | ✅ | - | 虚拟模型 id，不能与 `virtualProvider` 下物理模型 id 相同；同一配置内重复会直接报错 |
+| `models[].name` | - | `models[].id` |  `/model` 列表里显示的名字（非字符串时忽略） |
+| `models[].thinkingLevels` | - | 全部档位 | 选择时可用的思考档位（非数组或过滤后为空时回落全部档位） |
+| `models[].contextWindow` / `maxTokens` | - | 未声明 | 首个响应前展示的限值（非正数时忽略） |
 | `models[].primary` | ✅ | - | 主用物理模型，`provider/id` |
 | `models[].fallbacks[]` | - | `[]` | 备用物理模型，按顺序降级；非法项被忽略；**建议链路总长 ≤ 5**（业界网关默认上限，链过长会让一次故障在多个 provider 上依次付出失败代价） |
 | `degradePatterns[]` | - | 内置 14 项 | 命中即降级的关键词（忽略大小写；非空列表**完全覆盖**默认值，留空/全空白则回落内置默认） |
@@ -116,11 +116,11 @@ pi list
 
 ```bash
 bun install       # 安装 devDeps / peer
-bun run test      # bun test：8 个文件，81 个用例
+bun run test      # bun test：跑 tests/ 下全部 node:test 用例
 bun run typecheck # tsc --noEmit
 bun run pack      # bun pm pack --dry-run，检查发布内容
 
-# 同一套用例也可用 Node ≥ 22.18 直跑 TS（无测试框架）
+# 同一套用例也可用 Node ≥ 22.18 直跑 TS（无测试框架）；CI 以 Node 24 守护此承诺
 bun run test:node # 等价 node --test "tests/**/*.test.ts"
 ```
 

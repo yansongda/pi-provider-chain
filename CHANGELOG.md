@@ -26,10 +26,12 @@
 - `degradePatterns` 为空数组时明确回落内置默认（原「degradePatterns 为空」校验为不可达代码，已删除）
 - 默认降级 pattern 中纯字母/词组项启用词边界（`billing` 不再命中 `rebilling` 之类无关文案）
 - 错误信息前缀由 `model-routing:` 改为 `provider-fallback:`
+- `/fallback degrade` 的提示改为显示状态文件里实际生效的档位与恢复时间（盘上已有更深档位时不再误报第 1 档）
+- 配置中 `name` / `thinkingLevels` / `contextWindow` / `maxTokens` 的非法值被归一化丢弃，`models[]` 重复 id 直接报错
 
 ### 工程
 
 - 拆分为 `src/{model-ref,degrade,state,config,routing,command,ui}.ts` + 薄装配入口，纯逻辑可单测；`LoadedModel.chain` 用元组类型表达「至少一项」不变量
-- 零运行时依赖；`bun test` 单测（81 用例）+ `node --test`（Node ≥ 22.18 直跑 TS）+ `tsc --noEmit` 类型检查
+- 零运行时依赖；`bun test` 单测 + `node --test`（Node ≥ 22.18 直跑 TS）+ `tsc --noEmit` 类型检查；CI 同时以 Node 24 跑同一套用例
 - `examples/` 提供可直接复制的完整配置示例与字段说明
 - GitHub Actions：CI（push/PR 跑 test + typecheck）与 Release（tag `v*` 发布到 npm 并创建 GitHub Release）

@@ -30,8 +30,12 @@ export interface StateFile {
 /** 过期条目保留时长：超过 `until + PRUNE_AFTER_MS` 的条目在写入时被清理 */
 export const PRUNE_AFTER_MS = 24 * 60 * 60 * 1000;
 
+function stateWith(degraded: Record<string, DegradeEntry>): StateFile {
+	return { version: 1, degraded };
+}
+
 export function emptyState(): StateFile {
-	return { version: 1, degraded: {} };
+	return stateWith({});
 }
 
 function normalizeEntry(value: unknown): DegradeEntry | undefined {
@@ -56,7 +60,7 @@ export function readState(path: string): StateFile {
 			const entry = normalizeEntry(value);
 			if (entry) degraded[key] = entry;
 		}
-		return { version: 1, degraded };
+		return stateWith(degraded);
 	} catch {
 		return emptyState();
 	}
@@ -78,7 +82,7 @@ function prune(state: StateFile, now: number): StateFile {
 	for (const [key, entry] of Object.entries(state.degraded)) {
 		if (entry.until + PRUNE_AFTER_MS >= now) degraded[key] = entry;
 	}
-	return { version: 1, degraded };
+	return stateWith(degraded);
 }
 
 function writeState(path: string, data: StateFile): { ok: true } | { ok: false; error: string } {
@@ -123,13 +127,13 @@ export function upsertEntry(
 	return { entry: merged, changed };
 }
 
-/** 清除某个 key 的降级状态（不存在也视为成功）。 */
-export function clearEntry(path: string, key: string): { ok: boolean; error?: string } {
+/** 清除某个 key 的降级状态（不存在也视为成功）；与 `upsertEntry` 一致，写入时顺带清理过期历史条目。 */
+export function clearEntry(path: string, key: string, now: number = Date.now()): { ok: boolean; error?: string } {
 	const state = readState(path);
 	if (!(key in state.degraded)) return { ok: true };
 	const degraded = { ...state.degraded };
 	delete degraded[key];
-	const written = writeState(path, { version: 1, degraded });
+	const written = writeState(path, prune(stateWith(degraded), now));
 	if (!written.ok) return { ok: false, error: written.error };
 	return { ok: true };
 }

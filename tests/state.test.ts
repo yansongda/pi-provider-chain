@@ -97,6 +97,17 @@ test("clearEntry：清除后 state 不含该 key，重复清除仍成功", () =>
 	assert.equal(clearEntry(path, "volcengine").ok, true);
 });
 
+test("clearEntry：写入时顺带清理过期历史条目（与 upsertEntry 一致）", () => {
+	const path = tempStatePath();
+	upsertEntry(path, "active", entry(), NOW);
+	// 用较早的 now 落盘一条已过期的历史条目，避免被同一次写入清掉
+	upsertEntry(path, "stale", entry({ until: NOW - PRUNE_AFTER_MS - 1000 }), NOW - PRUNE_AFTER_MS - 2000);
+	assert.deepEqual(Object.keys(readState(path).degraded).sort(), ["active", "stale"]);
+
+	assert.equal(clearEntry(path, "stale", NOW).ok, true);
+	assert.deepEqual(Object.keys(readState(path).degraded), ["active"]);
+});
+
 test("readState：结构非法的条目被忽略，合法条目保留", () => {
 	const path = tempStatePath();
 	writeFileSync(

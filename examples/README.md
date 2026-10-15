@@ -20,10 +20,10 @@ cp examples/provider-fallback.json ~/.pi/agent/provider-fallback.json
 | 字段 | 必填 | 示例值 | 说明 |
 | --- | --- | --- | --- |
 | `virtualProvider` | ✅ | `"yansongda"` | 虚拟模型挂载的 provider id；可以是不存在的 id（此时虚拟模型始终可选），也可以是已有 provider |
-| `models[].id` | ✅ | `"deepseek-v4.1-flash"` | 虚拟模型 id；不能与 `virtualProvider` 下的物理模型 id 相同 |
-| `models[].name` | - | `"DeepSeek V4.1 Flash"` | `/model` 列表显示名，缺省为 `id` |
-| `models[].thinkingLevels` | - | `["low","high","max"]` | 可选思考档位，缺省为全部档位 |
-| `models[].contextWindow` / `maxTokens` | - | `1000000` / `384000` | 首个响应前的展示限值，之后以实际物理模型为准 |
+| `models[].id` | ✅ | `"deepseek-v4.1-flash"` | 虚拟模型 id；不能与 `virtualProvider` 下的物理模型 id 相同；同一配置内重复会直接报错 |
+| `models[].name` | - | `"DeepSeek V4.1 Flash"` | `/model` 列表显示名，缺省为 `id`（非字符串时忽略） |
+| `models[].thinkingLevels` | - | `["low","high","max"]` | 可选思考档位，缺省为全部档位（非数组或过滤后为空时回落全部档位） |
+| `models[].contextWindow` / `maxTokens` | - | `1000000` / `384000` | 首个响应前的展示限值，之后以实际物理模型为准（非正数时忽略） |
 | `models[].primary` | ✅ | `"volcengine/deepseek-v4.1-flash"` | 主用物理模型，`provider/id` |
 | `models[].fallbacks[]` | - | `["workbuddy/deepseek-v4.1-flash"]` | 备用物理模型，按序降级；非法项被静默忽略；建议链路总长 ≤ 5 |
 | `degradePatterns[]` | - | 14 项内置默认 | 命中即降级的文本关键词（忽略大小写）；非空列表**完全覆盖**默认值，留空/全空白则回落默认 |
