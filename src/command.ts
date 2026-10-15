@@ -1,7 +1,7 @@
 /**
- * `/fallback` 命令参数解析（纯函数模块，无 IO、无 pi 依赖）。
+ * `/chain` 命令参数解析（纯函数模块，无 IO、无 pi 依赖）。
  *
- * - action 归一化：`degrade` / `fallback` → degrade，`reset` / `primary` / `clear` → reset
+ * - action 归一化：`degrade` → degrade，`reset` / `primary` / `clear` → reset
  * - 空参数或未识别的首个子命令 → status（未识别时带原文，供命令层追加提示）
  * - 时长文本交给 `parseDurationMs` 解析，非法时长返回 undefined（由命令层回落默认值）
  */
@@ -27,7 +27,6 @@ export function parseCommandArgs(args?: string): ParsedCommand {
 		case "status":
 			return { action: "status" };
 		case "degrade":
-		case "fallback":
 			return { action: "degrade", durationMs: parseDurationMs(parts[1]) };
 		case "reset":
 		case "primary":

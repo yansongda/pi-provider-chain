@@ -48,24 +48,23 @@ const CONFIG = {
 			id: "deepseek-v4.1-flash",
 			name: "DeepSeek V4.1 Flash · auto",
 			thinkingLevels: ["low", "high", "max"],
-			primary: "volcengine/deepseek-v4.1-flash",
-			fallbacks: ["workbuddy/deepseek-v4.1-flash"],
+			chain: ["volcengine/deepseek-v4.1-flash", "workbuddy/deepseek-v4.1-flash"],
 		},
 	],
 };
 
 function makeAgentDir(options: { config?: unknown; state?: unknown } = {}): string {
 	const dir = mkdtempSync(join(tmpdir(), "pf-entry-"));
-	if (options.config !== undefined) writeFileSync(join(dir, "provider-fallback.json"), JSON.stringify(options.config, null, 2), "utf8");
-	if (options.state !== undefined) writeFileSync(join(dir, "provider-fallback-state.json"), JSON.stringify(options.state, null, 2), "utf8");
+	if (options.config !== undefined) writeFileSync(join(dir, "provider-chain.json"), JSON.stringify(options.config, null, 2), "utf8");
+	if (options.state !== undefined) writeFileSync(join(dir, "provider-chain-state.json"), JSON.stringify(options.state, null, 2), "utf8");
 	return dir;
 }
 
 const CONFIG2 = {
 	virtualProvider: "yansongda",
 	models: [
-		{ id: "a", primary: "volcengine/a", fallbacks: ["workbuddy/a"] },
-		{ id: "b", primary: "openrouter/b", fallbacks: ["glm/b"] },
+		{ id: "a", chain: ["volcengine/a", "workbuddy/a"] },
+		{ id: "b", chain: ["openrouter/b", "glm/b"] },
 	],
 };
 
@@ -84,7 +83,7 @@ async function loadExtension(dir: string) {
 		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
 	};
-	const factory = (await import("../extensions/provider-fallback.ts")).default;
+	const factory = (await import("../extensions/provider-chain.ts")).default;
 	const captured: {
 		models: CapturedModel[];
 		commands: string[];
@@ -134,15 +133,15 @@ function makeCtx() {
 }
 
 function readDegraded(dir: string) {
-	return JSON.parse(readFileSync(join(dir, "provider-fallback-state.json"), "utf8")) as {
+	return JSON.parse(readFileSync(join(dir, "provider-chain-state.json"), "utf8")) as {
 		degraded: Record<string, { level: number; reason: string; until: number }>;
 	};
 }
 
-test("注册虚拟模型与 /fallback 命令（provider / id / 思考档位来自配置）", async () => {
+test("注册虚拟模型与 /chain 命令（provider / id / 思考档位来自配置）", async () => {
 	const captured = await loadExtension(makeAgentDir({ config: CONFIG }));
-	assert.deepEqual(captured.commands, ["fallback"]);
-	const command = captured.commandOptions.get("fallback");
+	assert.deepEqual(captured.commands, ["chain"]);
+	const command = captured.commandOptions.get("chain");
 	assert.ok(command?.description?.includes("degrade"), "description 应含主要子命令 degrade");
 	assert.deepEqual(
 		command?.getArgumentCompletions?.("res")?.map((item) => item.value),
@@ -159,6 +158,7 @@ test("注册虚拟模型与 /fallback 命令（provider / id / 思考档位来�
 	assert.ok(captured.handlers.has("agent_before_settle"));
 	assert.ok(captured.handlers.has("message_end"));
 	assert.ok(captured.handlers.has("session_start"));
+	assert.ok(captured.handlers.has("model_select"));
 });
 
 test("无降级状态：route() 返回主用物理模型", async () => {
@@ -225,7 +225,7 @@ test("models[].input：声明则透传给注册定义，未声明则不携带该
 test("配置缺失：不注册虚拟模型，session_start 提示未启用", async () => {
 	const captured = await loadExtension(makeAgentDir());
 	assert.equal(captured.models.length, 0);
-	assert.deepEqual(captured.commands, ["fallback"]);
+	assert.deepEqual(captured.commands, ["chain"]);
 	const { ctx, notifications } = makeCtx();
 	captured.handlers.get("session_start")?.({ type: "session_start" }, ctx);
 	assert.equal(notifications.length, 1);
@@ -332,7 +332,7 @@ test("message_end：过期降级后的首次主用成功 → 提示恢复、写�
 	assert.ok(notifications[0]!.message.includes("已恢复"));
 	assert.equal(readDegraded(dir).degraded.volcengine?.level, 0, "应写入 level=0 墓碑");
 	assert.equal(readDegraded(dir).degraded.volcengine?.reason, "recovered");
-	assert.equal(status.at(-1), undefined, "页脚应被清空");
+	assert.equal(status.at(-1), "⬇ volcengine/deepseek-v4.1-flash", "页脚回到主用目标");
 
 	messageEnd?.({ message: success }, ctx);
 	assert.equal(notifications.length, 1, "墓碑存在时不应重复提示");
@@ -345,11 +345,11 @@ test("message_end：非主用 provider 的成功响应不触发恢复逻辑", as
 	assert.equal(notifications.length, 0);
 });
 
-test("/fallback degrade 与 reset：手动降级写状态，reset 清除并刷新页脚", async () => {
+test("/chain degrade 与 reset：手动降级写状态，reset 清除并刷新页脚", async () => {
 	const dir = makeAgentDir({ config: CONFIG });
 	const captured = await loadExtension(dir);
 	const { ctx, notifications, status } = makeCtx();
-	const command = captured.commandOptions.get("fallback");
+	const command = captured.commandOptions.get("chain");
 	assert.ok(command);
 
 	await command.handler("degrade 30m", ctx);
@@ -362,17 +362,16 @@ test("/fallback degrade 与 reset：手动降级写状态，reset 清除并刷�
 	await command.handler("reset", ctx);
 	assert.equal(readDegraded(dir).degraded.volcengine, undefined);
 	assert.ok(notifications.at(-1)?.message.includes("已清除"));
-	assert.equal(status.at(-1), undefined, "reset 后页脚应清空");
+	assert.equal(status.at(-1), "⬇ volcengine/deepseek-v4.1-flash", "reset 后页脚回到主用目标");
 });
 
-test("/fallback degrade：盘上已有更深档位时，提示实际生效的档位与恢复时间", async () => {
+test("/chain degrade：盘上已有更深档位时，提示实际生效的档位与恢复时间", async () => {
 	const config = {
 		virtualProvider: "yansongda",
 		models: [
 			{
 				id: "deepseek-v4.1-flash",
-				primary: "volcengine/deepseek-v4.1-flash",
-				fallbacks: ["workbuddy/deepseek-v4.1-flash", "glm/deepseek-v4.1-flash"],
+				chain: ["volcengine/deepseek-v4.1-flash", "workbuddy/deepseek-v4.1-flash", "glm/deepseek-v4.1-flash"],
 			},
 		],
 	};
@@ -383,7 +382,7 @@ test("/fallback degrade：盘上已有更深档位时，提示实际生效的档
 	});
 	const captured = await loadExtension(dir);
 	const { ctx, notifications } = makeCtx();
-	const command = captured.commandOptions.get("fallback");
+	const command = captured.commandOptions.get("chain");
 	assert.ok(command);
 
 	await command.handler("degrade 30m", ctx);
@@ -397,10 +396,10 @@ test("/fallback degrade：盘上已有更深档位时，提示实际生效的档
 	assert.equal(state?.until, activeUntil, "不应改写恢复时间");
 });
 
-test("/fallback status：未知子命令给出提示，已知 status 输出链路", async () => {
+test("/chain status：未知子命令给出提示，已知 status 输出链路", async () => {
 	const captured = await loadExtension(makeAgentDir({ config: CONFIG }));
 	const { ctx, notifications } = makeCtx();
-	const command = captured.commandOptions.get("fallback");
+	const command = captured.commandOptions.get("chain");
 	assert.ok(command);
 
 	await command.handler("nope", ctx);
@@ -412,7 +411,7 @@ test("/fallback status：未知子命令给出提示，已知 status 输出链�
 	assert.ok(output.includes("volcengine/deepseek-v4.1-flash  →  workbuddy/deepseek-v4.1-flash"));
 });
 
-test("session_start：多个 provider 同时降级时页脚汇总，不互相覆盖", async () => {
+test("session_start：页脚只反映当前选中模型的降级（不再汇总其它 provider）", async () => {
 	const dir = makeAgentDir({
 		config: CONFIG2,
 		state: {
@@ -425,6 +424,50 @@ test("session_start：多个 provider 同时降级时页脚汇总，不互相覆
 	});
 	const captured = await loadExtension(dir);
 	const { ctx, status } = makeCtx();
+	ctx.model = { provider: "yansongda", id: "a" };
 	captured.handlers.get("session_start")?.({ type: "session_start" }, ctx);
-	assert.equal(status.at(-1), "⚠ 备用 ×2: workbuddy, glm");
+	assert.ok(status.at(-1)?.startsWith("⚠ 备用 workbuddy/a · 恢复 "), status.at(-1));
+
+	// 切到模型 b：页脚跟随选中模型，显示 b 所在链路的备用目标
+	ctx.model = { provider: "yansongda", id: "b" };
+	captured.handlers.get("model_select")?.({ type: "model_select" }, ctx);
+	assert.ok(status.at(-1)?.startsWith("⚠ 备用 glm/b · 恢复 "), status.at(-1));
+});
+
+test("页脚去重：同一文案不重复调用 setStatus", async () => {
+	const dir = makeAgentDir({ config: CONFIG });
+	const captured = await loadExtension(dir);
+	const { ctx, status } = makeCtx();
+
+	captured.handlers.get("session_start")?.({ type: "session_start" }, ctx);
+	assert.equal(status.at(-1), "⬇ volcengine/deepseek-v4.1-flash");
+	const count = status.length;
+
+	captured.handlers.get("model_select")?.({ type: "model_select" }, ctx);
+	captured.handlers.get("message_end")?.(
+		{ message: { role: "assistant", provider: "volcengine", model: "deepseek-v4.1-flash", stopReason: "endTurn" } },
+		ctx,
+	);
+	assert.equal(status.length, count, "文案未变不重复写页脚");
+});
+
+test("message_end：成功响应后刷新页脚（选中模型降级中 → 备用与恢复时间）", async () => {
+	const dir = makeAgentDir({
+		config: CONFIG,
+		state: { version: 1, degraded: { volcengine: { level: 1, until: Date.now() + 3_600_000, reason: "q", at: Date.now() } } },
+	});
+	const captured = await loadExtension(dir);
+	const { ctx, status } = makeCtx();
+
+	captured.handlers.get("message_end")?.(
+		{ message: { role: "assistant", provider: "workbuddy", stopReason: "endTurn" } },
+		ctx,
+	);
+	assert.equal(status.length, 0, "非本扩展模型 provider 的成功响应不触发页脚刷新");
+
+	captured.handlers.get("message_end")?.(
+		{ message: { role: "assistant", provider: "volcengine", model: "deepseek-v4.1-flash", stopReason: "endTurn" } },
+		ctx,
+	);
+	assert.ok(status.at(-1)?.startsWith("⚠ 备用 workbuddy/deepseek-v4.1-flash · 恢复 "), status.at(-1));
 });

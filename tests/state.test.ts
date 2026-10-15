@@ -7,7 +7,7 @@ import { PRUNE_AFTER_MS } from "../src/constants.ts";
 import { activeEntry, clearEntry, type DegradeEntry, readState, upsertEntry } from "../src/state.ts";
 
 function tempStatePath(): string {
-	return join(mkdtempSync(join(tmpdir(), "pf-state-")), "provider-fallback-state.json");
+	return join(mkdtempSync(join(tmpdir(), "pf-state-")), "provider-chain-state.json");
 }
 
 const NOW = 1_800_000_000_000;

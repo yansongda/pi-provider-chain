@@ -11,12 +11,12 @@
 // ---------------------------------------------------------------------------
 
 /** 扩展名：同时作为状态键、转录条目类型与文件名前缀（有意共用同一命名空间）。 */
-export const EXTENSION_NAME = "provider-fallback";
+export const EXTENSION_NAME = "provider-chain";
 /** 页脚常驻状态的键（`ctx.ui.setStatus` 的第一个参数）。 */
 export const STATUS_KEY = EXTENSION_NAME;
 /** 转录条目类型（`pi.appendEntry` / `registerEntryRenderer` 的 customType）。 */
 export const ENTRY_TYPE = EXTENSION_NAME;
-export const COMMAND_NAME = "fallback";
+export const COMMAND_NAME = "chain";
 export const COMMAND_USAGE = `/${COMMAND_NAME} [status | degrade [时长] | reset | reload]`;
 /** 转录内可见条目的前缀（与命令同名，便于对照）。 */
 export const ENTRY_PREFIX = `[${COMMAND_NAME}]`;
@@ -117,8 +117,8 @@ export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhig
 export const MAX_ERROR_STORE_CHARS = 2000;
 /** 转录条目展开时展示的错误原文上限。 */
 export const MAX_ERROR_DISPLAY_CHARS = 600;
-/** 手动 `/fallback degrade` 写入转录条目的错误原文占位。 */
-export const MANUAL_DEGRADE_NOTE = "手动 /fallback degrade";
+/** 手动 `/chain degrade` 写入转录条目的错误原文占位。 */
+export const MANUAL_DEGRADE_NOTE = "手动 /chain degrade";
 
 // ---------------------------------------------------------------------------
 // 用户文案模板（一句话 = 一个模板）
@@ -141,7 +141,7 @@ export const MESSAGES = {
 	/** 路由异常（已回落主用）的转录条目文案。 */
 	routeError: "⚠ 路由异常（已回落主用）",
 	/** 全链路不可用且主用也无法回落时的抛错文案。 */
-	unavailable: (primaryRef: string) => `${ERROR_PREFIX} ${primaryRef} 与全部 fallback 均不可用`,
+	unavailable: (primaryRef: string) => `${ERROR_PREFIX} ${primaryRef} 与全部后备链路均不可用`,
 
 	// --- 转录条目 ---
 	entryDegrade: (p: { reason: string; to: string }) => `⚠ 额度受限（${p.reason}）→ 降级到 ${p.to}`,
@@ -149,11 +149,11 @@ export const MESSAGES = {
 	entryRecover: (provider: string) => `✅ 已恢复主用 ${provider}`,
 	entryNoData: `${ENTRY_PREFIX} (no data)`,
 
-	// --- 页脚状态 ---
-	statusSingle: (p: { provider: string; untilText: string }) => `⚠ 备用 ${p.provider} · ${p.untilText}`,
-	statusMulti: (p: { count: number; providers: string }) => `⚠ 备用 ×${p.count}: ${p.providers}`,
+	// --- 页脚（常驻显示当前选中模型的目标物理模型） ---
+	footerActive: (target: string) => `⬇ ${target}`,
+	footerDegraded: (p: { target: string; untilText: string }) => `⚠ 备用 ${p.target} · 恢复 ${p.untilText}`,
 
-	// --- /fallback status ---
+	// --- /chain status ---
 	headerCurrent: (ref: string) => `当前: ${ref}`,
 	headerConfig: (path: string) => `配置: ${path}`,
 	headerStateFile: (path: string) => `状态文件: ${path}`,
@@ -168,10 +168,10 @@ export const MESSAGES = {
 	statePrimary: "主用",
 	staleHint: "提示: 状态已过期，下一请求会自动尝试主用",
 
-	// --- /fallback degrade | reset ---
+	// --- /chain degrade | reset ---
 	reloading: `重新加载 ${EXTENSION_NAME} 扩展与配置…`,
 	noVirtualModel: "配置中没有可用的虚拟模型",
-	noFallback: (model: string) => `${model} 未配置 fallback，无法切换`,
+	noSpareChain: (model: string) => `${model} 未配置后备链路，无法切换`,
 	manualDegraded: (p: { model: string; to: string; untilText: string }) => `已手动降级 ${p.model} → ${p.to}，至 ${p.untilText}`,
 	deeperLevelKept: (p: { level: number; to: string; untilText: string }) =>
 		`已存在更深的降级档位，保持 level=${p.level}（${p.to}），至 ${p.untilText}`,
@@ -181,7 +181,7 @@ export const MESSAGES = {
 	unknownSubcommand: (unknown: string) => `未知子命令：${unknown}（可用：${COMMAND_USAGE}）`,
 } as const;
 
-/** `/fallback` 子命令补全项（value / label / description 均为用户可见文案）。 */
+/** `/chain` 子命令补全项（value / label / description 均为用户可见文案）。 */
 export const COMMAND_COMPLETIONS = [
 	{ value: "status", label: "status", description: "显示当前选中模型、链路与降级状态" },
 	{ value: "degrade 30m", label: "degrade [时长]", description: "手动降级到第 1 档备用（30m / 2h / 1d）" },

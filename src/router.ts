@@ -35,9 +35,10 @@ import {
 	degradeNotice,
 	describeModel,
 	deeperLevelKeptLine,
+	footerActive,
+	footerDegraded,
 	manualDegradeLine,
 	recoverNotice,
-	statusText,
 } from "./ui.ts";
 
 /** 物理模型的**结构下限**：路由结果只需能被宿主识别（真实类型由装配层实例化为 pi 的 `Model`）。 */
@@ -52,6 +53,8 @@ export interface PhysicalModel {
  */
 export interface RouterPorts<M extends PhysicalModel> {
 	now(): number;
+	/** 当前选中的模型（`cfg.virtualProvider` 下的虚拟模型时才显示页脚） */
+	selection(): { provider: string; id: string } | undefined;
 	readState(): StateFile;
 	upsert(provider: string, entry: DegradeEntry): { entry: DegradeEntry; changed: boolean; writeError?: string };
 	clear(provider: string): { ok: boolean; error?: string };
@@ -94,7 +97,7 @@ export interface Router<M extends PhysicalModel, TLevel extends string> {
 	reviewFailure(model: LoadedModel, failure: FailureInfo, snapshot?: StateSnapshot): DegradeEntry | undefined;
 	notePrimarySuccess(provider: string): void;
 	refreshStatus(): void;
-	/** `/fallback status` 的完整输出行（头部 + 各模型 + 过期提示）。 */
+	/** `/chain status` 的完整输出行（头部 + 各模型 + 过期提示）。 */
 	statusLines(input: { selection?: string; target: LoadedModel; unknown?: string }): string[];
 	/** 手动降级到第 1 档，返回给用户的一行结果。 */
 	manualDegrade(model: LoadedModel, durationMs?: number): string;
@@ -121,20 +124,27 @@ export function createRouter<M extends PhysicalModel, TLevel extends string>(
 		);
 	}
 
-	/** 重算页脚：把状态文件里所有活跃降级汇总成一行（多 provider 不互相覆盖，同一备用 provider 只显示一次）。 */
+	/**
+	 * 重算页脚：常驻显示**当前选中模型**的目标物理模型；该模型降级中则显示备用目标与恢复时间。
+	 * 选中非本扩展管理的模型时清空页脚（其它模型的降级由 `/chain status` 全量展示）。
+	 */
 	function refreshStatus(now: number = ports.now()): void {
-		const state = ports.readState();
-		const entries: Array<{ provider: string; until: number }> = [];
-		const seen = new Set<string>();
-		for (const model of cfg.models) {
-			const entry = state.degraded[model.stateKey];
-			if (!entry || entry.until <= now) continue;
-			const target = model.chain[clampLevel(entry.level, model.chain.length)];
-			if (seen.has(target.provider)) continue;
-			seen.add(target.provider);
-			entries.push({ provider: target.provider, until: entry.until });
+		const selection = ports.selection();
+		const model =
+			selection && selection.provider === cfg.virtualProvider
+				? cfg.models.find((candidate) => candidate.config.id === selection.id)
+				: undefined;
+		if (!model) {
+			ports.setStatus(undefined);
+			return;
 		}
-		ports.setStatus(statusText(entries));
+		const entry = ports.readState().degraded[model.stateKey];
+		const level = entry && entry.until > now ? clampLevel(entry.level, model.chain.length) : 0;
+		ports.setStatus(
+			entry && level > 0
+				? footerDegraded({ target: refText(model.chain[level]), until: entry.until })
+				: footerActive(refText(model.chain[0])),
+		);
 	}
 
 	/** 写入降级状态；仅在状态变化时做 UI 提示（幂等）。 */
@@ -311,7 +321,7 @@ export function createRouter<M extends PhysicalModel, TLevel extends string>(
 
 	function manualDegrade(model: LoadedModel, durationMs?: number): string {
 		const ref = `${cfg.virtualProvider}/${model.config.id}`;
-		if (model.chain.length < 2) return MESSAGES.noFallback(ref);
+		if (model.chain.length < 2) return MESSAGES.noSpareChain(ref);
 
 		const ms = clampDegradeMs(durationMs ?? cfg.defaultDegradeMs, cfg.maxDegradeMs);
 		const applied = applyDegrade(model, {

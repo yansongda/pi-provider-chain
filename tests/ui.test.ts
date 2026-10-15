@@ -16,13 +16,14 @@ import {
 	entryRecoverText,
 	manualDegradeLine,
 	recoverNotice,
-	statusText,
+	footerActive,
+	footerDegraded,
 } from "../src/ui.ts";
 
 const UNTIL = new Date(2026, 9, 28, 23, 59).getTime();
 
 const MODEL: LoadedModel = {
-	config: { id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash · auto", primary: "volcengine/deepseek-v4.1-flash" },
+	config: { id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash · auto" },
 	stateKey: "volcengine",
 	chain: [
 		{ provider: "volcengine", id: "deepseek-v4.1-flash" },
@@ -42,21 +43,16 @@ test("degradeNotice：正常与写失败两种文案", () => {
 	assert.ok(failed.includes("仅本进程生效"));
 });
 
-test("statusText：单条紧凑、多条汇总、无条目清空", () => {
-	assert.equal(statusText([{ provider: "workbuddy", until: UNTIL }]), `⚠ 备用 workbuddy · ${formatClock(UNTIL, "short")}`);
-	assert.equal(statusText([]), undefined);
+test("footer：常驻目标模型与降级恢复时间", () => {
+	assert.equal(footerActive("volcengine/deepseek-v4.1-flash"), "⬇ volcengine/deepseek-v4.1-flash");
 	assert.equal(
-		statusText([
-			{ provider: "workbuddy", until: UNTIL },
-			{ provider: "openrouter", until: UNTIL + 60_000 },
-		]),
-		"⚠ 备用 ×2: workbuddy, openrouter",
+		footerDegraded({ target: "workbuddy/deepseek-v4.1-flash", until: UNTIL }),
+		`⚠ 备用 workbuddy/deepseek-v4.1-flash · 恢复 ${formatClock(UNTIL, "short")}`,
 	);
-	assert.equal(recoverNotice("volcengine"), "✅ volcengine 已恢复，后续请求回到主用");
 });
 
 test("entry 文案：降级行/恢复行/前缀", () => {
-	assert.equal(ENTRY_PREFIX, "[fallback]");
+	assert.equal(ENTRY_PREFIX, "[chain]");
 	assert.deepEqual(entryDegradeLine({ reason: "AccountQuotaExceeded", to: "workbuddy/deepseek-v4.1-flash", until: UNTIL }), {
 		text: "⚠ 额度受限（AccountQuotaExceeded）→ 降级到 workbuddy/deepseek-v4.1-flash",
 		dim: `  ·  恢复 ${formatClock(UNTIL)}`,
@@ -65,7 +61,7 @@ test("entry 文案：降级行/恢复行/前缀", () => {
 });
 
 test("entry 文案：无数据 / 路由异常与错误截断", () => {
-	assert.equal(entryNoDataText(), "[fallback] (no data)");
+	assert.equal(entryNoDataText(), "[chain] (no data)");
 	assert.equal(entryErrorText(), "⚠ 路由异常（已回落主用）");
 	assert.equal(entryErrorDetail("x".repeat(700)).length, 600);
 	assert.equal(entryErrorDetail("short"), "short");
@@ -80,6 +76,10 @@ test("manualDegradeLine / deeperLevelKeptLine：手动降级两种文案", () =>
 		deeperLevelKeptLine({ level: 2, to: "glm/deepseek-v4.1-flash", until: UNTIL }),
 		`已存在更深的降级档位，保持 level=2（glm/deepseek-v4.1-flash），至 ${formatClock(UNTIL)}`,
 	);
+});
+
+test("recoverNotice：恢复提示文案", () => {
+	assert.equal(recoverNotice("volcengine"), "✅ volcengine 已恢复，后续请求回到主用");
 });
 
 test("describeModel：降级中（含原因与恢复时间）", () => {
@@ -109,13 +109,13 @@ test("describeModel：档位越界时链路描述不抛错", () => {
 test("commandStatusHeader：含配置与状态文件路径", () => {
 	const lines = commandStatusHeader({
 		selection: "yansongda/deepseek-v4.1-flash",
-		configPath: "/tmp/pf/provider-fallback.json",
-		stateFile: "/tmp/pf/provider-fallback-state.json",
+		configPath: "/tmp/pf/provider-chain.json",
+		stateFile: "/tmp/pf/provider-chain-state.json",
 	});
 	assert.deepEqual(lines, [
 		"当前: yansongda/deepseek-v4.1-flash",
-		"配置: /tmp/pf/provider-fallback.json",
-		"状态文件: /tmp/pf/provider-fallback-state.json",
+		"配置: /tmp/pf/provider-chain.json",
+		"状态文件: /tmp/pf/provider-chain-state.json",
 		"",
 	]);
 	assert.equal(commandStatusHeader({ configPath: "c", stateFile: "s" })[0], "当前: (未选择)");
@@ -124,7 +124,8 @@ test("commandStatusHeader：含配置与状态文件路径", () => {
 test("ui 模块只做格式化：输出不含 undefined/NaN", () => {
 	const text = [
 		degradeNotice({ provider: "k", reason: "c", to: "t", until: UNTIL, writeFailed: false }),
-		statusText([{ provider: "p", until: UNTIL }]),
+		footerActive("t"),
+		footerDegraded({ target: "t", until: UNTIL }),
 		recoverNotice("p"),
 		entryRecoverText("p"),
 		entryNoDataText(),

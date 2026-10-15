@@ -12,7 +12,7 @@ test("parseCommandArgs：默认与显式 status", () => {
 
 test("parseCommandArgs：degrade 与其别名、时长解析", () => {
 	assert.deepEqual(parseCommandArgs("degrade"), { action: "degrade", durationMs: undefined });
-	assert.deepEqual(parseCommandArgs("fallback 30m"), { action: "degrade", durationMs: 1_800_000 });
+	assert.deepEqual(parseCommandArgs("fallback 30m"), { action: "status", unknown: "fallback" }, "fallback 不再是子命令");
 	assert.deepEqual(parseCommandArgs("degrade 2h"), { action: "degrade", durationMs: 7_200_000 });
 	assert.deepEqual(parseCommandArgs("degrade abc"), { action: "degrade", durationMs: undefined });
 });

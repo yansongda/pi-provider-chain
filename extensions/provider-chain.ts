@@ -1,15 +1,16 @@
 /**
- * provider-fallback — 虚拟模型 + 配额耗尽自动降级。
+ * provider-chain — 虚拟模型 + 链路路由 + 配额耗尽自动降级。
  *
- * 读取 `<agentDir>/provider-fallback.json`（`agentDir = $PI_CODING_AGENT_DIR || ~/.pi/agent`），为每条
- * `models[]` 注册一个虚拟模型（默认 provider = `yansongda`），把请求路由到 `primary`，命中额度/订阅/欠费类
- * 错误时自动推进到 `fallbacks`：
+ * 读取 `<agentDir>/provider-chain.json`（`agentDir = $PI_CODING_AGENT_DIR || ~/.pi/agent`），为每条
+ * `models[]` 注册一个虚拟模型（默认 provider = `yansongda`），把请求路由到 `chain[0]`，命中额度/订阅/欠费类
+ * 错误时自动沿 `chain[1..]` 推进：
  * - 只有额度类错误才降级；429 瞬时限流 / 5xx / 网络错误不干预，交回 Pi 自身重试
  * - 降级状态写入共享文件（跨 session、跨进程、跨前后台 subagent 生效）
  * - 两条触发路径：reason === "retry" 快路径；agent_before_settle 兜底路径
+ * - 页脚常驻：显示当前选中模型的目标物理模型；降级中追加备用目标与恢复时间
  *
  * 本文件只做「装配」：注册虚拟模型 / 事件 / 命令 / 渲染器，并把 pi 的 `ctx` 适配成 router 端口。
- * 档位推进、路由决策、恢复判定、命令输出在 `../src/router.ts`；常量与文案在 `../src/constants.ts`。
+ * 档位推进、路由决策、恢复判定、页脚与命令输出在 `../src/router.ts`；常量与文案在 `../src/constants.ts`。
  */
 
 import type { ExtensionAPI, ExtensionContext, VirtualModelDefinition } from "@earendil-works/pi-coding-agent";
@@ -77,6 +78,8 @@ export default function (pi: ExtensionAPI) {
 	const cfg = result.loaded;
 	const models = cfg.models;
 	const byId = new Map(models.map((m) => [m.config.id, m] as const));
+	/** 页脚文案去重：内容未变则不重复调用 `ctx.ui.setStatus`（避免每轮响应重绘）。 */
+	let lastStatus: string | undefined;
 
 	function notifyUi(ctx: ExtensionContext, message: string, kind: NotifyKind): void {
 		if (!ctx.hasUI) return;
@@ -103,6 +106,10 @@ export default function (pi: ExtensionAPI) {
 		};
 		return {
 			now: () => Date.now(),
+			selection: () => {
+				const selected = ctx.model;
+				return selected ? { provider: selected.provider, id: selected.id } : undefined;
+			},
 			readState: () => readState(cfg.stateFile),
 			upsert: (provider, entry) => upsertEntry(cfg.stateFile, provider, entry),
 			clear: (provider) => clearEntry(cfg.stateFile, provider),
@@ -128,6 +135,8 @@ export default function (pi: ExtensionAPI) {
 				}
 			},
 			setStatus: (text) => {
+				if (text === lastStatus) return; // 文案未变不重绘
+				lastStatus = text;
 				if (!ctx.hasUI) return;
 				try {
 					ctx.ui.setStatus(STATUS_KEY, text);
@@ -187,21 +196,28 @@ export default function (pi: ExtensionAPI) {
 		};
 	});
 
-	// --- 恢复提示 ---
+	// --- 恢复提示 + 页脚保真（每条成功响应后按选中模型刷新） ---
 	pi.on("message_end", (event, ctx) => {
 		const message = event.message;
 		if (!message || message.role !== "assistant") return;
 		if (message.stopReason === "error" || message.stopReason === "aborted") return;
 		if (!models.some((m) => m.stateKey === message.provider)) return;
-		routerFor(ctx).notePrimarySuccess(message.provider);
+		const router = routerFor(ctx);
+		router.notePrimarySuccess(message.provider);
+		router.refreshStatus();
 	});
 
-	// --- 会话启动：把已生效的降级状态显示到页脚 ---
+	// --- 模型切换：页脚常驻内容随选中模型变化 ---
+	pi.on("model_select", (_event, ctx) => {
+		routerFor(ctx).refreshStatus();
+	});
+
+	// --- 会话启动：把当前选中模型的目标与恢复时间显示到页脚 ---
 	pi.on("session_start", (_event, ctx) => {
 		routerFor(ctx).refreshStatus();
 	});
 
-	// --- /fallback 命令 ---
+	// --- /chain 命令 ---
 	pi.registerCommand(COMMAND_NAME, {
 		description: MESSAGES.commandDescription,
 		getArgumentCompletions: (prefix: string) => {

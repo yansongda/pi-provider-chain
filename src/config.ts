@@ -1,8 +1,8 @@
 /**
  * 配置加载与校验（纯函数 + 只读 IO，无 pi 依赖）。
  *
- * 配置文件默认 `<agentDir>/provider-fallback.json`，状态文件默认
- * `<agentDir>/provider-fallback-state.json`，其中
+ * 配置文件默认 `<agentDir>/provider-chain.json`，状态文件默认
+ * `<agentDir>/provider-chain-state.json`，其中
  * `agentDir = $PI_CODING_AGENT_DIR || ~/.pi/agent`。
  */
 
@@ -34,15 +34,18 @@ export interface RoutingModelConfig {
 	input?: ModelInputKind[];
 	contextWindow?: number;
 	maxTokens?: number;
-	primary: string;
-	fallbacks?: string[];
+	/** 链路：`chain[0]` 为主用，其后按顺序作为后备；至少一项且 `chain[0]` 必须合法 */
+	chain: string[];
 }
 
+/** 归一化后的模型配置：不含原始 `chain` 字符串（已解析为 `LoadedModel.chain`）。 */
+export type LoadedModelConfig = Omit<RoutingModelConfig, "chain">;
+
 export interface LoadedModel {
-	config: RoutingModelConfig;
-	/** 状态文件的键：恒为 primary 的 provider（同一 provider 下的虚拟模型共享档位） */
+	config: LoadedModelConfig;
+	/** 状态文件的键：恒为 `chain[0]` 的 provider（同一 provider 下的虚拟模型共享档位） */
 	stateKey: string;
-	/** 解析后的链路：`[primary, ...合法 fallbacks]`（至少一项） */
+	/** 解析后的链路：`[chain[0], ...合法 chain[1..]]`（至少一项） */
 	chain: [ModelRef, ...ModelRef[]];
 }
 
@@ -98,8 +101,8 @@ function optionalPositiveNumber(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
-function positiveNumber(value: unknown, fallback: number): number {
-	return optionalPositiveNumber(value) ?? fallback;
+function positiveNumber(value: unknown, defaultValue: number): number {
+	return optionalPositiveNumber(value) ?? defaultValue;
 }
 
 /** 归一化 `thinkingLevels`：只保留非空字符串；过滤后为空视为未声明（由装配层回落全部档位）。 */
@@ -140,19 +143,19 @@ export function loadConfig(path: string = defaultConfigPath(), dir: string = age
 	const seenIds = new Set<string>();
 	for (const entry of raw.models as RoutingModelConfig[]) {
 		const id = typeof entry?.id === "string" ? entry.id.trim() : "";
-		const primary = parseRef(String(entry?.primary ?? ""));
-		if (!id || !primary) return { ok: false, error: `models[] 条目缺少 id 或合法 primary：${JSON.stringify(entry)}` };
+		const rawChain = Array.isArray(entry?.chain) ? entry.chain : [];
+		const primary = parseRef(String(rawChain[0] ?? ""));
+		if (!id || !primary) return { ok: false, error: `models[] 条目缺少 id 或合法 chain[0]：${JSON.stringify(entry)}` };
 		if (seenIds.has(id)) return { ok: false, error: `models[] 存在重复 id：${id}` };
 		seenIds.add(id);
 		const chain: [ModelRef, ...ModelRef[]] = [primary];
 		// 链长建议 ≤ 5（业界网关默认上限）：链过长会让一次故障在多个 provider 上依次付出失败代价
-		for (const fb of entry?.fallbacks ?? []) {
-			const ref = parseRef(String(fb));
+		for (const item of rawChain.slice(1)) {
+			const ref = parseRef(String(item));
 			if (ref) chain.push(ref);
 		}
 		models.push({
 			config: {
-				...entry,
 				id,
 				name: optionalText(entry?.name),
 				thinkingLevels: normalizeThinkingLevels(entry?.thinkingLevels),

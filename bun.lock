@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@yansongda/pi-provider-fallback",
+      "name": "pi-provider-chain",
       "devDependencies": {
         "@earendil-works/pi-coding-agent": "^1.2.0",
         "@earendil-works/pi-tui": "^1.2.0",

@@ -13,7 +13,7 @@ import { dirname } from "node:path";
 import { DEGRADE_REASON, PRUNE_AFTER_MS, STATE_TMP_SUFFIX, STATE_VERSION } from "./constants.ts";
 
 export interface DegradeEntry {
-	/** 生效档位：0 = 主用，1..n = fallbacks 下标 */
+	/** 生效档位：0 = 主用，1..n = `chain[1..]` 下标 */
 	level: number;
 	/** 降级截止时间戳（ms） */
 	until: number;

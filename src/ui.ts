@@ -1,7 +1,7 @@
 /**
  * 用户文案组装（纯函数模块，无 pi 依赖）。
  *
- * - 负责人读提示、页脚状态、转录条目与 `/fallback` 命令输出
+ * - 负责人读提示、页脚状态、转录条目与 `/chain` 命令输出
  * - 只做「选模板 + 汇总/截断/多行组装」：字面文案全部来自 `./constants.ts` 的 `MESSAGES`，
  *   时间统一用 `formatClock` 格式化后传给模板（模板因此不需要依赖任何工具函数）
  */
@@ -58,32 +58,29 @@ export function entryErrorDetail(message: string): string {
 	return message.slice(0, MAX_ERROR_DISPLAY_CHARS);
 }
 
-/** `/fallback degrade`：手动降级成功行。 */
+/** `/chain degrade`：手动降级成功行。 */
 export function manualDegradeLine(input: { model: string; to: string; until: number }): string {
 	return MESSAGES.manualDegraded({ model: input.model, to: input.to, untilText: formatClock(input.until) });
 }
 
-/** `/fallback degrade`：盘上已有更深档位时的提示行。 */
+/** `/chain degrade`：盘上已有更深档位时的提示行。 */
 export function deeperLevelKeptLine(input: { level: number; to: string; until: number }): string {
 	return MESSAGES.deeperLevelKept({ level: input.level, to: input.to, untilText: formatClock(input.until) });
 }
 
 /**
- * 页脚常驻状态。
- * - 0 条 → undefined（清空页脚）
- * - 1 条 → `⚠ 备用 <provider> · MM-DD HH:mm`
- * - ≥2 条 → 汇总 `⚠ 备用 ×N: a, b`（各自恢复时间不同，逐个列出会超出页脚宽度）
+ * 页脚（常驻显示当前选中模型的目标物理模型）：
+ * - 未降级 → `⬇ <目标>`
+ * - 已降级 → `⚠ 备用 <目标> · 恢复 MM-DD HH:mm`
+ *
+ * 只描述**当前选中模型**（其它模型的降级信息由 `/chain status` 全量展示）。
  */
-export function statusText(entries: readonly { provider: string; until: number }[]): string | undefined {
-	const first = entries[0];
-	if (!first) return undefined;
-	if (entries.length === 1) {
-		return MESSAGES.statusSingle({ provider: first.provider, untilText: formatClock(first.until, "short") });
-	}
-	return MESSAGES.statusMulti({
-		count: entries.length,
-		providers: entries.map((entry) => entry.provider).join(", "),
-	});
+export function footerActive(target: string): string {
+	return MESSAGES.footerActive(target);
+}
+
+export function footerDegraded(input: { target: string; until: number }): string {
+	return MESSAGES.footerDegraded({ target: input.target, untilText: formatClock(input.until, "short") });
 }
 
 /** 恢复提示。 */
@@ -91,7 +88,7 @@ export function recoverNotice(provider: string): string {
 	return MESSAGES.recovered(provider);
 }
 
-/** `/fallback status` 中单个虚拟模型的描述行。 */
+/** `/chain status` 中单个虚拟模型的描述行。 */
 export function describeModel(input: {
 	virtualProvider: string;
 	model: LoadedModel;
@@ -116,7 +113,7 @@ export function describeModel(input: {
 	return lines;
 }
 
-/** `/fallback status` 头部：当前选中模型 + 配置/状态文件位置。 */
+/** `/chain status` 头部：当前选中模型 + 配置/状态文件位置。 */
 export function commandStatusHeader(input: { selection?: string; configPath: string; stateFile: string }): string[] {
 	return [
 		MESSAGES.headerCurrent(input.selection || MESSAGES.notSelected),

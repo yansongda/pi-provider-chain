@@ -31,8 +31,7 @@
       "input": ["text", "image"],
       "contextWindow": 1000000,
       "maxTokens": 384000,
-      "primary": "volcengine/deepseek-v4.1-flash",
-      "fallbacks": ["workbuddy/deepseek-v4.1-flash"]
+      "chain": ["volcengine/deepseek-v4.1-flash", "workbuddy/deepseek-v4.1-flash"]
     },
     {
       "id": "deepseek-v4-flash",
@@ -41,8 +40,7 @@
       "input": ["text", "image"],
       "contextWindow": 1000000,
       "maxTokens": 384000,
-      "primary": "volcengine/deepseek-v4-flash",
-      "fallbacks": ["workbuddy/deepseek-v4.1-flash"]
+      "chain": ["volcengine/deepseek-v4-flash", "workbuddy/deepseek-v4.1-flash"]
     },
     {
       "id": "deepseek-v4-pro",
@@ -51,8 +49,7 @@
       "input": ["text", "image"],
       "contextWindow": 1000000,
       "maxTokens": 384000,
-      "primary": "volcengine/deepseek-v4-pro",
-      "fallbacks": ["workbuddy/deepseek-v4-pro"]
+      "chain": ["volcengine/deepseek-v4-pro", "workbuddy/deepseek-v4-pro"]
     },
     {
       "id": "glm-5.3",
@@ -61,8 +58,7 @@
       "input": ["text", "image"],
       "contextWindow": 1024000,
       "maxTokens": 128000,
-      "primary": "volcengine/glm-5.3",
-      "fallbacks": ["workbuddy/glm-5.3"]
+      "chain": ["volcengine/glm-5.3", "workbuddy/glm-5.3"]
     }
   ]
 }

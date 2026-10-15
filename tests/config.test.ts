@@ -7,7 +7,7 @@ import { agentDir, defaultConfigPath, defaultStateFile, expandPath, loadConfig }
 import { DEFAULT_DEGRADE_MS, DEFAULT_RESET_PATTERN, MAX_DEGRADE_MS } from "../src/constants.ts";
 
 function writeConfig(content: unknown): string {
-	const path = join(mkdtempSync(join(tmpdir(), "pf-config-")), "provider-fallback.json");
+	const path = join(mkdtempSync(join(tmpdir(), "pf-config-")), "provider-chain.json");
 	writeFileSync(path, typeof content === "string" ? content : JSON.stringify(content, null, 2), "utf8");
 	return path;
 }
@@ -18,8 +18,7 @@ const MINIMAL = {
 		{
 			id: "deepseek-v4.1-flash",
 			name: "DeepSeek V4.1 Flash · auto",
-			primary: "volcengine/deepseek-v4.1-flash",
-			fallbacks: ["workbuddy/deepseek-v4.1-flash"],
+			chain: ["volcengine/deepseek-v4.1-flash", "workbuddy/deepseek-v4.1-flash"],
 		},
 	],
 };
@@ -30,12 +29,12 @@ test("合法最小配置：默认路径与链路解析", () => {
 	assert.equal(result.ok, true);
 	if (!result.ok) return;
 	assert.equal(result.loaded.virtualProvider, "yansongda");
-	assert.equal(result.loaded.stateFile, join("/tmp/pf-agent", "provider-fallback-state.json"));
+	assert.equal(result.loaded.stateFile, join("/tmp/pf-agent", "provider-chain-state.json"));
 	assert.deepEqual(result.loaded.models[0]?.chain, [
 		{ provider: "volcengine", id: "deepseek-v4.1-flash" },
 		{ provider: "workbuddy", id: "deepseek-v4.1-flash" },
 	]);
-	assert.equal(result.loaded.models[0]?.stateKey, "volcengine", "状态键 = primary 的 provider");
+	assert.equal(result.loaded.models[0]?.stateKey, "volcengine", "状态键 = chain[0] 的 provider");
 	assert.equal(result.loaded.defaultDegradeMs, DEFAULT_DEGRADE_MS);
 	assert.equal(result.loaded.maxDegradeMs, MAX_DEGRADE_MS);
 	assert.equal(result.loaded.transcriptNotice, true);
@@ -62,7 +61,7 @@ test("配置文件不存在 / 内容损坏", () => {
 	if (!broken.ok) assert.ok(broken.error.includes("配置文件解析失败"));
 });
 
-test("缺少 virtualProvider / models 为空 / primary 非法", () => {
+test("缺少 virtualProvider / models 为空 / chain[0] 非法", () => {
 	const noProvider = loadConfig(writeConfig({ models: MINIMAL.models }), "/tmp/pf-agent");
 	assert.equal(noProvider.ok, false);
 	if (!noProvider.ok) assert.equal(noProvider.error, "缺少 virtualProvider");
@@ -72,17 +71,28 @@ test("缺少 virtualProvider / models 为空 / primary 非法", () => {
 	if (!noModels.ok) assert.equal(noModels.error, "models[] 为空");
 
 	const badPrimary = loadConfig(
-		writeConfig({ virtualProvider: "yansongda", models: [{ id: "x", primary: "noslash" }] }),
+		writeConfig({ virtualProvider: "yansongda", models: [{ id: "x", chain: ["noslash"] }] }),
 		"/tmp/pf-agent",
 	);
 	assert.equal(badPrimary.ok, false);
-	if (!badPrimary.ok) assert.ok(badPrimary.error.includes("models[] 条目缺少 id 或合法 primary"));
+	if (!badPrimary.ok) assert.ok(badPrimary.error.includes("models[] 条目缺少 id 或合法 chain[0]"));
 });
 
-test("非法 fallback 被静默过滤，剩余链路仍可用", () => {
+test("chain 缺失 / 非数组 / 空数组 → 整条配置报错", () => {
+	for (const chain of [undefined, "volcengine/x", [], [""], [123]]) {
+		const result = loadConfig(
+			writeConfig({ virtualProvider: "yansongda", models: [{ id: "x", ...(chain === undefined ? {} : { chain }) }] }),
+			"/tmp/pf-agent",
+		);
+		assert.equal(result.ok, false, `chain=${JSON.stringify(chain)} 应报错`);
+		if (!result.ok) assert.ok(result.error.includes("chain[0]"), result.error);
+	}
+});
+
+test("chain[1..] 非法项被静默过滤，剩余链路仍可用", () => {
 	const path = writeConfig({
 		...MINIMAL,
-		models: [{ ...MINIMAL.models[0], fallbacks: ["noslash", "", "workbuddy/glm-5.3"] }],
+		models: [{ ...MINIMAL.models[0], chain: ["volcengine/deepseek-v4.1-flash", "noslash", "", "workbuddy/glm-5.3"] }],
 	});
 	const result = loadConfig(path, "/tmp/pf-agent");
 	assert.equal(result.ok, true);
@@ -131,7 +141,7 @@ test("input 归一化：只保留宿主支持的输入类型并去重，非法/�
 });
 
 test("models[] 重复 id → 配置报错", () => {
-	const path = writeConfig({ ...MINIMAL, models: [MINIMAL.models[0], { ...MINIMAL.models[0], primary: "openrouter/other" }] });
+	const path = writeConfig({ ...MINIMAL, models: [MINIMAL.models[0], { ...MINIMAL.models[0], chain: ["openrouter/other"] }] });
 	const result = loadConfig(path, "/tmp/pf-agent");
 	assert.equal(result.ok, false);
 	if (!result.ok) assert.ok(result.error.includes("重复 id"), result.error);
@@ -189,8 +199,8 @@ test("agentDir/defaultConfigPath/defaultStateFile 跟随 PI_CODING_AGENT_DIR", (
 	process.env.PI_CODING_AGENT_DIR = "/tmp/pf-agent-env";
 	try {
 		assert.equal(agentDir(), "/tmp/pf-agent-env");
-		assert.equal(defaultConfigPath(), join("/tmp/pf-agent-env", "provider-fallback.json"));
-		assert.equal(defaultStateFile(), join("/tmp/pf-agent-env", "provider-fallback-state.json"));
+		assert.equal(defaultConfigPath(), join("/tmp/pf-agent-env", "provider-chain.json"));
+		assert.equal(defaultStateFile(), join("/tmp/pf-agent-env", "provider-chain-state.json"));
 	} finally {
 		if (original === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = original;

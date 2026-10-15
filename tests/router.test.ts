@@ -27,10 +27,10 @@ function chainOf(refs: readonly string[]): [ModelRef, ...ModelRef[]] {
 }
 
 interface HarnessInput {
-	/** `[primary, ...fallbacks]` 形式的链路（默认两档：volcengine → workbuddy） */
+	/** `chain[]` 形式的链路（默认两档：volcengine → workbuddy） */
 	chain?: readonly string[];
 	/** 覆盖配置里的 models[]（多模型 / 页脚去重用） */
-	models?: ReadonlyArray<{ id: string; primary: string; fallbacks?: readonly string[] }>;
+	models?: ReadonlyArray<{ id: string; chain: readonly string[] }>;
 	/** 初始状态文件内容（provider → 档位） */
 	state?: Record<string, DegradeEntry>;
 	/** 有凭证的 `provider/id`；undefined = 全部有凭证 */
@@ -46,10 +46,10 @@ interface HarnessInput {
 function makeHarness(input: HarnessInput = {}) {
 	let now = NOW;
 	const chains = input.models
-		? input.models.map((model) => ({ id: model.id, refs: [model.primary, ...(model.fallbacks ?? [])] }))
+		? input.models.map((model) => ({ id: model.id, refs: [...model.chain] }))
 		: [{ id: "main", refs: [...(input.chain ?? ["volcengine/deepseek-v4.1-flash", "workbuddy/deepseek-v4.1-flash"])] }];
 	const models: LoadedModel[] = chains.map((chain) => ({
-		config: { id: chain.id, primary: chain.refs[0]!, fallbacks: chain.refs.slice(1) },
+		config: { id: chain.id },
 		stateKey: parseRef(chain.refs[0]!)!.provider,
 		chain: chainOf(chain.refs),
 	}));
@@ -73,10 +73,15 @@ function makeHarness(input: HarnessInput = {}) {
 
 	const available = input.available ? new Set(input.available) : undefined;
 	const catalogOnly = new Set(input.catalog ?? []);
+	const selection: { value: { provider: string; id: string } | undefined } = {
+		value: { provider: cfg.virtualProvider, id: models[0]!.config.id },
+	};
 	const asModel = (ref: ModelRef): PhysicalModel => ({ provider: ref.provider, id: ref.id });
 
 	const ports: RouterPorts<PhysicalModel> = {
 		now: () => now,
+		// 默认选中第一个虚拟模型（与真实会话一致）；需要时用 setSelection 改
+		selection: () => selection.value,
 		readState: () => {
 			calls.reads++;
 			if (input.readThrows) throw new Error("state port down");
@@ -120,6 +125,9 @@ function makeHarness(input: HarnessInput = {}) {
 		router: createRouter<PhysicalModel, string>(cfg, ports) as Router<PhysicalModel, string>,
 		setNow: (value: number) => {
 			now = value;
+		},
+		setSelection: (value: { provider: string; id: string } | undefined) => {
+			selection.value = value;
 		},
 	};
 }
@@ -215,7 +223,7 @@ test("全链路都没有凭证：回落主用目录对象（让 Pi 报出真实�
 
 test("连主用都不存在：抛错并带上引用", () => {
 	const h = makeHarness({ available: [] });
-	assert.throws(() => h.router.route(h.models[0]!, { reason: "user", thinkingLevel: "low" }), /与全部 fallback 均不可用/);
+	assert.throws(() => h.router.route(h.models[0]!, { reason: "user", thinkingLevel: "low" }), /与全部后备链路均不可用/);
 });
 
 test("端口自身故障：回落主用并留一条 error 转录条目", () => {
@@ -229,39 +237,55 @@ test("端口自身故障：回落主用并留一条 error 转录条目", () => {
 	assert.ok(entry.message.includes("state port down"));
 });
 
-test("refreshStatus：多 provider 汇总（各自备用），同一备用 provider 只显示一次", () => {
-	const multi = makeHarness({
-		models: [
-			{ id: "a", primary: "volcengine/a", fallbacks: ["workbuddy/a"] },
-			{ id: "b", primary: "openrouter/b", fallbacks: ["glm/b"] },
-		],
-		state: {
-			volcengine: { level: 1, until: NOW + 3_600_000, reason: "q", at: NOW },
-			openrouter: { level: 1, until: NOW + 3_600_000, reason: "q", at: NOW },
-		},
-	});
-	multi.router.refreshStatus();
-	assert.equal(multi.statuses.at(-1), "⚠ 备用 ×2: workbuddy, glm");
+test("refreshStatus：常驻显示选中模型的目标；降级时给出备用目标与恢复时间", () => {
+	const active = makeHarness();
+	active.router.refreshStatus();
+	assert.equal(active.statuses.at(-1), "⬇ volcengine/deepseek-v4.1-flash");
 
-	const single = makeHarness({
-		models: [
-			{ id: "a", primary: "volcengine/a", fallbacks: ["workbuddy/a"] },
-			{ id: "c", primary: "openrouter/c", fallbacks: ["workbuddy/c"] },
-		],
-		state: {
-			volcengine: { level: 1, until: NOW + 3_600_000, reason: "q", at: NOW },
-			openrouter: { level: 1, until: NOW + 3_600_000, reason: "q", at: NOW },
-		},
+	const degraded = makeHarness({
+		state: { volcengine: { level: 1, until: NOW + 3_600_000, reason: "q", at: NOW } },
 	});
-	single.router.refreshStatus();
-	assert.equal(single.statuses.at(-1)?.startsWith("⚠ 备用 workbuddy · "), true, "同一 provider 只显示一次");
+	degraded.router.refreshStatus();
+	const text = degraded.statuses.at(-1) ?? "";
+	assert.ok(text.startsWith("⚠ 备用 workbuddy/deepseek-v4.1-flash · 恢复 "), text);
 });
 
-test("refreshStatus：无活跃降级时清空页脚，且每次调用只读一次状态", () => {
+test("refreshStatus：选中非本扩展模型（物理模型 / 未配置 id）时清空页脚", () => {
+	const h = makeHarness({ state: { volcengine: { level: 1, until: NOW + 3_600_000, reason: "q", at: NOW } } });
+
+	h.setSelection({ provider: "volcengine", id: "deepseek-v4.1-flash" });
+	h.router.refreshStatus();
+	assert.equal(h.statuses.at(-1), undefined, "选中的是物理模型 → 不接管页脚");
+
+	h.setSelection({ provider: "yansongda", id: "not-configured" });
+	h.router.refreshStatus();
+	assert.equal(h.statuses.at(-1), undefined, "未配置的虚拟模型 → 不接管页脚");
+
+	h.setSelection(undefined);
+	h.router.refreshStatus();
+	assert.equal(h.statuses.at(-1), undefined, "未选择 → 清空页脚");
+});
+
+test("refreshStatus：其它模型的降级不影响当前选中模型的页脚", () => {
+	const h = makeHarness({
+		models: [
+			{ id: "a", chain: ["volcengine/a", "workbuddy/a"] },
+			{ id: "b", chain: ["openrouter/b", "glm/b"] },
+		],
+		state: { openrouter: { level: 1, until: NOW + 3_600_000, reason: "q", at: NOW } },
+	});
+	h.router.refreshStatus();
+	assert.equal(h.statuses.at(-1), "⬇ volcengine/a", "只反映当前选中模型（a）的档位");
+
+	h.setSelection({ provider: "yansongda", id: "b" });
+	h.router.refreshStatus();
+	assert.ok((h.statuses.at(-1) ?? "").startsWith("⚠ 备用 glm/b · 恢复 "), h.statuses.at(-1));
+});
+
+test("refreshStatus：每次调用只读一次状态", () => {
 	const h = makeHarness();
 	h.router.refreshStatus();
 	h.router.refreshStatus();
-	assert.deepEqual(h.statuses, [undefined, undefined]);
 	assert.equal(h.calls.reads, 2);
 });
 
@@ -274,7 +298,7 @@ test("notePrimarySuccess：过期降级后的首次主用成功 → 墓碑 + 提
 	assert.equal(h.notifications.length, 1);
 	assert.equal(h.notifications[0]?.kind, NOTIFY_KIND.INFO);
 	assert.ok(h.notifications[0]?.message.includes("已恢复"));
-	assert.equal(h.statuses.at(-1), undefined, "页脚清空");
+	assert.equal(h.statuses.at(-1), "⬇ volcengine/deepseek-v4.1-flash", "页脚回到主用目标");
 	assert.equal(h.entries.at(-1)?.kind, ENTRY_KIND.RECOVER);
 
 	h.router.notePrimarySuccess("volcengine");
@@ -354,10 +378,10 @@ test("manualDegrade：写入 level=1 / reason=manual，并提示实际生效档�
 	assert.equal(entry.trigger, DEGRADE_TRIGGER.MANUAL);
 });
 
-test("manualDegrade：未配置 fallback 时只返回提示，不写状态", () => {
+test("manualDegrade：未配置后备链路时只返回提示，不写状态", () => {
 	const h = makeHarness({ chain: ["volcengine/a"] });
 	const line = h.router.manualDegrade(h.models[0]!, 1_800_000);
-	assert.ok(line.includes("未配置 fallback"));
+	assert.ok(line.includes("未配置后备链路"));
 	assert.equal(h.calls.upserts, 0);
 });
 
@@ -378,15 +402,15 @@ test("reset：清除状态 + 刷新页脚；不存在也视为成功", () => {
 	const h = makeHarness({ state: { volcengine: { level: 1, until: NOW + 3_600_000, reason: "q", at: NOW } } });
 	assert.ok(h.router.reset(h.models[0]!).includes("已清除 volcengine"));
 	assert.equal(h.state.degraded.volcengine, undefined);
-	assert.equal(h.statuses.at(-1), undefined, "页脚清空");
+	assert.equal(h.statuses.at(-1), "⬇ volcengine/deepseek-v4.1-flash", "页脚回到主用目标");
 	assert.ok(h.router.reset(h.models[0]!).includes("已清除 volcengine"));
 });
 
 test("statusLines：头部 + 各模型 + 未知子命令 + 过期提示", () => {
 	const h = makeHarness({
 		models: [
-			{ id: "a", primary: "volcengine/a", fallbacks: ["workbuddy/a"] },
-			{ id: "b", primary: "openrouter/b" },
+			{ id: "a", chain: ["volcengine/a", "workbuddy/a"] },
+			{ id: "b", chain: ["openrouter/b"] },
 		],
 		state: {
 			volcengine: { level: 1, until: NOW + 3_600_000, reason: "AccountQuotaExceeded", at: NOW },

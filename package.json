@@ -1,25 +1,26 @@
 {
-  "name": "@yansongda/pi-provider-fallback",
+  "name": "pi-provider-chain",
   "version": "0.1.0",
-  "description": "Pi 扩展：虚拟模型 + 额度耗尽自动降级（quota / subscription / overdue 类错误自动切到备用 provider）",
+  "description": "Pi 扩展：虚拟模型 + 链路（chain）路由 + 额度耗尽自动降级（quota / subscription / overdue 类错误自动切到后备链路）",
   "type": "module",
   "license": "MIT",
   "author": "yansongda",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yansongda/pi-provider-fallback.git"
+    "url": "git+https://github.com/yansongda/pi-provider-chain.git"
   },
-  "homepage": "https://github.com/yansongda/pi-provider-fallback#readme",
+  "homepage": "https://github.com/yansongda/pi-provider-chain#readme",
   "bugs": {
-    "url": "https://github.com/yansongda/pi-provider-fallback/issues"
+    "url": "https://github.com/yansongda/pi-provider-chain/issues"
   },
   "keywords": [
     "pi-package",
     "pi",
     "pi-coding-agent",
     "pi-extension",
-    "model-fallback",
-    "provider-fallback",
+    "virtual-model",
+    "provider-chain",
+    "model-chain",
     "quota",
     "router"
   ],
@@ -36,11 +37,8 @@
   ],
   "pi": {
     "extensions": [
-      "./extensions/provider-fallback.ts"
+      "./extensions/provider-chain.ts"
     ]
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
