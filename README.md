@@ -130,7 +130,7 @@ src/model-ref.ts                  provider/id 解析
 src/degrade.ts                    降级判定与时间解析（纯函数）
 src/state.ts                      状态文件读写（原子写 / 单调合并 / 清理）
 src/config.ts                     配置加载与校验
-src/routing.ts                    路由决策（纯函数）
+src/route-policy.ts               路由决策（纯函数）
 src/router.ts                     降级状态机与决策（端口注入，可单测）
 src/transcript.ts                 转录条目契约与会话遍历（纯函数）
 src/command.ts                    /chain 参数解析（纯函数）

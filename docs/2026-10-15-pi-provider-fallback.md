@@ -1,5 +1,6 @@
 # 技术设计：pi-provider-fallback 独立化 + 代码优化 + npm 发布
 
+> 注：本文中的 `src/routing.ts` 已于同日（2026-10-15）更名为 `src/route-policy.ts`（纯改名，无行为变化）。
 > **时间**：2026-10-15
 > **作者**：DeepSeek V4.1 Flash（PI_MODEL=deepseek-v4.1-flash）+ yansongda
 > **状态**：经过人工审核确认

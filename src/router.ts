@@ -27,7 +27,7 @@ import {
 import { defaultConfigPath } from "./config.ts";
 import { clampDegradeMs, parseDegrade, parseResetTs } from "./degrade.ts";
 import { refOf, refText, type ModelRef } from "./model-ref.ts";
-import { clampLevel, decideRoute, levelOfRef, type RouteReason } from "./routing.ts";
+import { clampLevel, decideRoute, levelOfRef, type RouteReason } from "./route-policy.ts";
 import type { DegradeEntry, StateFile } from "./state.ts";
 import type { RouteEntryData } from "./transcript.ts";
 import {

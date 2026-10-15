@@ -1,7 +1,7 @@
 /**
  * 模型引用（`provider/id`）的解析与格式化。
  *
- * 该模块是纯函数模块：无 IO、无 pi 依赖，供 config / routing / 入口层共用。
+ * 该模块是纯函数模块：无 IO、无 pi 依赖，供 config / route-policy / 入口层共用。
  */
 
 export interface ModelRef {

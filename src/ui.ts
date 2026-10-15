@@ -10,7 +10,7 @@ import type { LoadedModel } from "./config.ts";
 import { MAX_ERROR_DISPLAY_CHARS, MESSAGES } from "./constants.ts";
 import { formatClock } from "./degrade.ts";
 import { refText } from "./model-ref.ts";
-import { clampLevel } from "./routing.ts";
+import { clampLevel } from "./route-policy.ts";
 import type { DegradeEntry } from "./state.ts";
 
 /** 降级提示（notify / 转录条目共用口径）。 */

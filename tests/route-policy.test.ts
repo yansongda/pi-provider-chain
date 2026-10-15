@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type ModelRef, refText } from "../src/model-ref.ts";
-import { clampLevel, decideRoute, levelOfRef, type RouteInput } from "../src/routing.ts";
+import { clampLevel, decideRoute, levelOfRef, type RouteInput } from "../src/route-policy.ts";
 
 const PRIMARY: ModelRef = { provider: "volcengine", id: "deepseek-v4.1-flash" };
 const FALLBACK1: ModelRef = { provider: "workbuddy", id: "deepseek-v4.1-flash" };

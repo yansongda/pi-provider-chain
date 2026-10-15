@@ -224,3 +224,4 @@ refreshStatus():
 | npm 包名 | `@yansongda/pi-provider-fallback`（初版设计） | `pi-provider-chain`（非 scope） | 用户指示：`@yansongda` scope 未注册且与账号冲突 |
 | `publishConfig.access` | scoped 必需 | 移除 | 非 scope 包默认可发布 |
 | 发布命令 | `npm publish --access public --provenance` | `npm publish --provenance` | 同上 |
+| `src/routing.ts` | 保持原名 | 更名为 **`src/route-policy.ts`**（测试同改名） | 用户指示：与 `src/router.ts` 只差一个字母易混；纯改名，行为零变化 |

@@ -33,7 +33,7 @@
 
 ### 工程
 
-- 拆分为 `src/{constants,model-ref,degrade,state,config,routing,router,transcript,command,ui}.ts` + 薄装配入口：常量与用户文案集中在 `constants.ts`；档位推进 / 路由决策 / 恢复判定 / 命令输出集中在 `router.ts`（端口注入，可脱离 pi 单测）；纯逻辑可单测；`LoadedModel.chain` 用元组类型表达「至少一项」不变量
+- 拆分为 `src/{constants,model-ref,degrade,state,config,route-policy,router,transcript,command,ui}.ts` + 薄装配入口：常量与用户文案集中在 `constants.ts`；档位推进 / 路由决策 / 恢复判定 / 命令输出集中在 `router.ts`（端口注入，可脱离 pi 单测）；纯逻辑可单测；`LoadedModel.chain` 用元组类型表达「至少一项」不变量
 - 路由异常（原本被 catch-all 静默吞掉）会以 `kind: "error"` 转录条目留痕，便于排查「降级未生效」类问题
 - 单请求内的宿主注册表查询按 `provider/id` 记忆化，状态文件读取复用同一快照（降级路径由 4 次降到 2 次）
 - 单请求内的宿主注册表查询按 `provider/id` 记忆化，状态文件读取复用同一快照（降级路径由 4 次降到 2 次）
