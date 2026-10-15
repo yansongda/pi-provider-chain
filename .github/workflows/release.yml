@@ -5,28 +5,65 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
   id-token: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   publish:
+    name: Publish to npm
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      # npm CLI 仅用于 --provenance 发布（bun publish 暂不支持 provenance 证明）
-      - uses: actions/setup-node@v4
+
+      - name: Setup Node.js for npm registry
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
-          registry-url: https://registry.npmjs.org
-      - run: bun install --frozen-lockfile
-      - run: bun run typecheck
-      - run: bun run test
-      - run: npm publish --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
-        env:
-          GH_TOKEN: ${{ github.token }}
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Verify tag matches package version
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          package_version="$(node -p "require('./package.json').version")"
+
+          if [ "$tag_version" != "$package_version" ]; then
+            echo "::error::Tag version ($tag_version) does not match package.json version ($package_version)."
+            exit 1
+          fi
+
+      - name: Select npm dist-tag
+        id: dist_tag
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+
+          if [[ "$package_version" == *-* ]]; then
+            echo "tag=next" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate package
+        run: |
+          bun run typecheck
+          bun run test
+          bun run test:node
+
+      - name: Preview npm package
+        run: npm pack --dry-run
+
+      - name: Publish package
+        run: npm publish --ignore-scripts --provenance --access public --tag "${{ steps.dist_tag.outputs.tag }}"
