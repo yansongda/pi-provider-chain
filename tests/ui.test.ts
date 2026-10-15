@@ -1,15 +1,20 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { LoadedModel } from "../src/config.ts";
-import { formatClock, formatClockShort } from "../src/degrade.ts";
+import { ENTRY_PREFIX } from "../src/constants.ts";
+import { formatClock } from "../src/degrade.ts";
 import type { DegradeEntry } from "../src/state.ts";
 import {
 	commandStatusHeader,
 	degradeNotice,
+	deeperLevelKeptLine,
 	describeModel,
-	ENTRY_PREFIX,
 	entryDegradeLine,
+	entryErrorDetail,
+	entryErrorText,
+	entryNoDataText,
 	entryRecoverText,
+	manualDegradeLine,
 	recoverNotice,
 	statusText,
 } from "../src/ui.ts";
@@ -18,27 +23,27 @@ const UNTIL = new Date(2026, 9, 28, 23, 59).getTime();
 
 const MODEL: LoadedModel = {
 	config: { id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash · auto", primary: "volcengine/deepseek-v4.1-flash" },
-	key: "volcengine",
+	stateKey: "volcengine",
 	chain: [
 		{ provider: "volcengine", id: "deepseek-v4.1-flash" },
 		{ provider: "workbuddy", id: "deepseek-v4.1-flash" },
 	],
 };
 
-const ACTIVE: DegradeEntry = { level: 1, until: UNTIL, code: "AccountQuotaExceeded", at: UNTIL - 3_600_000 };
-const STALE: DegradeEntry = { level: 1, until: UNTIL - 86_400_000, code: "AccountQuotaExceeded", at: UNTIL - 90_000_000 };
+const ACTIVE: DegradeEntry = { level: 1, until: UNTIL, reason: "AccountQuotaExceeded", at: UNTIL - 3_600_000 };
+const STALE: DegradeEntry = { level: 1, until: UNTIL - 86_400_000, reason: "AccountQuotaExceeded", at: UNTIL - 90_000_000 };
 
 test("degradeNotice：正常与写失败两种文案", () => {
 	assert.equal(
-		degradeNotice({ key: "volcengine", code: "AccountQuotaExceeded", to: "workbuddy/deepseek-v4.1-flash", until: UNTIL, writeFailed: false }),
+		degradeNotice({ provider: "volcengine", reason: "AccountQuotaExceeded", to: "workbuddy/deepseek-v4.1-flash", until: UNTIL, writeFailed: false }),
 		`⚠ volcengine 额度受限（AccountQuotaExceeded）→ 已切换 workbuddy/deepseek-v4.1-flash，恢复时间 ${formatClock(UNTIL)}`,
 	);
-	const failed = degradeNotice({ key: "volcengine", code: "quota", to: "workbuddy/x", until: UNTIL, writeFailed: true });
+	const failed = degradeNotice({ provider: "volcengine", reason: "quota", to: "workbuddy/x", until: UNTIL, writeFailed: true });
 	assert.ok(failed.includes("仅本进程生效"));
 });
 
 test("statusText：单条紧凑、多条汇总、无条目清空", () => {
-	assert.equal(statusText([{ provider: "workbuddy", until: UNTIL }]), `⚠ 备用 workbuddy · ${formatClockShort(UNTIL)}`);
+	assert.equal(statusText([{ provider: "workbuddy", until: UNTIL }]), `⚠ 备用 workbuddy · ${formatClock(UNTIL, "short")}`);
 	assert.equal(statusText([]), undefined);
 	assert.equal(
 		statusText([
@@ -52,11 +57,29 @@ test("statusText：单条紧凑、多条汇总、无条目清空", () => {
 
 test("entry 文案：降级行/恢复行/前缀", () => {
 	assert.equal(ENTRY_PREFIX, "[fallback]");
-	assert.deepEqual(entryDegradeLine({ code: "AccountQuotaExceeded", to: "workbuddy/deepseek-v4.1-flash", until: UNTIL }), {
+	assert.deepEqual(entryDegradeLine({ reason: "AccountQuotaExceeded", to: "workbuddy/deepseek-v4.1-flash", until: UNTIL }), {
 		text: "⚠ 额度受限（AccountQuotaExceeded）→ 降级到 workbuddy/deepseek-v4.1-flash",
 		dim: `  ·  恢复 ${formatClock(UNTIL)}`,
 	});
 	assert.equal(entryRecoverText("volcengine"), "✅ 已恢复主用 volcengine");
+});
+
+test("entry 文案：无数据 / 路由异常与错误截断", () => {
+	assert.equal(entryNoDataText(), "[fallback] (no data)");
+	assert.equal(entryErrorText(), "⚠ 路由异常（已回落主用）");
+	assert.equal(entryErrorDetail("x".repeat(700)).length, 600);
+	assert.equal(entryErrorDetail("short"), "short");
+});
+
+test("manualDegradeLine / deeperLevelKeptLine：手动降级两种文案", () => {
+	assert.equal(
+		manualDegradeLine({ model: "yansongda/deepseek-v4.1-flash", to: "workbuddy/deepseek-v4.1-flash", until: UNTIL }),
+		`已手动降级 yansongda/deepseek-v4.1-flash → workbuddy/deepseek-v4.1-flash，至 ${formatClock(UNTIL)}`,
+	);
+	assert.equal(
+		deeperLevelKeptLine({ level: 2, to: "glm/deepseek-v4.1-flash", until: UNTIL }),
+		`已存在更深的降级档位，保持 level=2（glm/deepseek-v4.1-flash），至 ${formatClock(UNTIL)}`,
+	);
 });
 
 test("describeModel：降级中（含原因与恢复时间）", () => {
@@ -100,11 +123,16 @@ test("commandStatusHeader：含配置与状态文件路径", () => {
 
 test("ui 模块只做格式化：输出不含 undefined/NaN", () => {
 	const text = [
-		degradeNotice({ key: "k", code: "c", to: "t", until: UNTIL, writeFailed: false }),
+		degradeNotice({ provider: "k", reason: "c", to: "t", until: UNTIL, writeFailed: false }),
 		statusText([{ provider: "p", until: UNTIL }]),
 		recoverNotice("p"),
 		entryRecoverText("p"),
-		...Object.values(entryDegradeLine({ code: "c", to: "t", until: UNTIL })),
+		entryNoDataText(),
+		entryErrorText(),
+		entryErrorDetail("x"),
+		manualDegradeLine({ model: "m", to: "t", until: UNTIL }),
+		deeperLevelKeptLine({ level: 2, to: "t", until: UNTIL }),
+		...Object.values(entryDegradeLine({ reason: "c", to: "t", until: UNTIL })),
 		...describeModel({ virtualProvider: "v", model: MODEL, active: ACTIVE }),
 		...commandStatusHeader({ configPath: "c", stateFile: "s" }),
 	].join("\n");

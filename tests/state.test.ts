@@ -3,7 +3,8 @@ import { mkdtempSync, readdirSync, readFileSync, statSync, utimesSync, writeFile
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { activeEntry, clearEntry, type DegradeEntry, PRUNE_AFTER_MS, readState, upsertEntry } from "../src/state.ts";
+import { PRUNE_AFTER_MS } from "../src/constants.ts";
+import { activeEntry, clearEntry, type DegradeEntry, readState, upsertEntry } from "../src/state.ts";
 
 function tempStatePath(): string {
 	return join(mkdtempSync(join(tmpdir(), "pf-state-")), "provider-fallback-state.json");
@@ -12,7 +13,7 @@ function tempStatePath(): string {
 const NOW = 1_800_000_000_000;
 
 function entry(overrides: Partial<DegradeEntry> = {}): DegradeEntry {
-	return { level: 1, until: NOW + 3_600_000, code: "test", at: NOW, ...overrides };
+	return { level: 1, until: NOW + 3_600_000, reason: "test", at: NOW, ...overrides };
 }
 
 test("写入后可读回", () => {
@@ -39,13 +40,13 @@ test("activeEntry：过期条目视为未降级", () => {
 	const path = tempStatePath();
 	upsertEntry(path, "volcengine", entry({ until: NOW - 1 }), NOW - 3_600_000);
 	assert.equal(activeEntry(path, "volcengine", NOW), undefined);
-	assert.equal(readState(path).degraded.volcengine?.code, "test");
+	assert.equal(readState(path).degraded.volcengine?.reason, "test");
 });
 
 test("合并：盘上更深的活跃档位不被回退（changed=false）", () => {
 	const path = tempStatePath();
 	upsertEntry(path, "volcengine", entry({ level: 2, until: NOW + 3_600_000 }), NOW);
-	const result = upsertEntry(path, "volcengine", entry({ level: 1, until: NOW + 600_000, code: "later" }), NOW);
+	const result = upsertEntry(path, "volcengine", entry({ level: 1, until: NOW + 600_000, reason: "later" }), NOW);
 	assert.equal(result.entry.level, 2);
 	assert.equal(result.changed, false);
 	assert.equal(readState(path).degraded.volcengine?.level, 2);
@@ -54,9 +55,9 @@ test("合并：盘上更深的活跃档位不被回退（changed=false）", () =
 test("合并：盘上条目已过期时允许回退与覆盖", () => {
 	const path = tempStatePath();
 	upsertEntry(path, "volcengine", entry({ level: 2, until: NOW - 1 }), NOW - 3_600_000);
-	const result = upsertEntry(path, "volcengine", entry({ level: 1, until: NOW + 600_000, code: "fresh" }), NOW);
+	const result = upsertEntry(path, "volcengine", entry({ level: 1, until: NOW + 600_000, reason: "fresh" }), NOW);
 	assert.equal(result.entry.level, 1);
-	assert.equal(result.entry.code, "fresh");
+	assert.equal(result.entry.reason, "fresh");
 	assert.equal(result.changed, true);
 });
 
@@ -112,16 +113,28 @@ test("readState：结构非法的条目被忽略，合法条目保留", () => {
 	const path = tempStatePath();
 	writeFileSync(
 		path,
-		JSON.stringify({ version: 1, degraded: { bad1: { level: "1", until: NOW + 1, code: "x", at: 0 }, bad2: null, good: entry() } }),
+		JSON.stringify({ version: 1, degraded: { bad1: { level: "1", until: NOW + 1, reason: "x", at: 0 }, bad2: null, good: entry() } }),
 		"utf8",
 	);
 	assert.deepEqual(Object.keys(readState(path).degraded), ["good"]);
 });
 
+test("readState：只认 reason 字段（旧 code 字段被忽略，回落默认 quota）", () => {
+	const path = tempStatePath();
+	writeFileSync(
+		path,
+		JSON.stringify({ version: 1, degraded: { volcengine: { level: 1, until: NOW + 1, code: "AccountQuotaExceeded", at: 0 } } }),
+		"utf8",
+	);
+	const entry = readState(path).degraded.volcengine;
+	assert.equal(entry?.reason, "quota");
+	assert.equal(entry?.level, 1, "level / until 不受字段名影响");
+});
+
 test("readState：同 mtime/size 的外部改写也能读到（无陈旧缓存）", () => {
 	const path = tempStatePath();
-	const before = JSON.stringify({ version: 1, degraded: { volcengine: { level: 1, until: NOW + 1, code: "aa", at: 0 } } });
-	const after = JSON.stringify({ version: 1, degraded: { volcengine: { level: 2, until: NOW + 1, code: "bb", at: 0 } } });
+	const before = JSON.stringify({ version: 1, degraded: { volcengine: { level: 1, until: NOW + 1, reason: "aa", at: 0 } } });
+	const after = JSON.stringify({ version: 1, degraded: { volcengine: { level: 2, until: NOW + 1, reason: "bb", at: 0 } } });
 	assert.equal(before.length, after.length, "两段内容需等长才能复现 mtime+size 缓存问题");
 
 	writeFileSync(path, before, "utf8");

@@ -8,6 +8,7 @@
 
 import { parseDurationMs } from "./degrade.ts";
 
+
 export type CommandAction = "status" | "degrade" | "reset" | "reload";
 
 export interface ParsedCommand {
@@ -17,8 +18,6 @@ export interface ParsedCommand {
 	/** 未识别的首个子命令原文（供提示） */
 	unknown?: string;
 }
-
-export const COMMAND_USAGE = "/fallback [status | degrade [时长] | reset | reload]";
 
 export function parseCommandArgs(args?: string): ParsedCommand {
 	const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);

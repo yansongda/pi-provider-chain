@@ -5,35 +5,17 @@
  * - 时间：从错误文本解析恢复时间（`reset at ...`），失败则用默认时长，并钳制到 [1min, maxDegradeMs]
  */
 
+import {
+	DEFAULT_DEGRADE_PATTERNS,
+	DEFAULT_RESET_PATTERN,
+	MIN_DEGRADE_MS,
+} from "./constants.ts";
+
 export interface Pattern {
-	/** 原始 pattern 文本，命中时作为 code 展示 */
+	/** 原始 pattern 文本，命中时作为 reason 展示 */
 	source: string;
 	re: RegExp;
 }
-
-export const DEFAULT_DEGRADE_PATTERNS: readonly string[] = [
-	"AccountQuotaExceeded",
-	"QuotaExceeded",
-	"AgentPlanQuotaExceeded",
-	"SetLimitExceeded",
-	"InvalidSubscription",
-	"subscription has expired",
-	"AccountOverdueError",
-	"ServiceOverdue",
-	"overdue balance",
-	"usage quota",
-	"exceeded the quota",
-	"insufficient_quota",
-	"out of budget",
-	"billing",
-];
-
-export const DEFAULT_RESET_PATTERN =
-	"reset at\\s+(\\d{4}-\\d{2}-\\d{2})[ T](\\d{2}:\\d{2}:\\d{2})(?:\\s*([+-]\\d{2}:?\\d{2}))?";
-
-export const DEFAULT_DEGRADE_MS = 60 * 60 * 1000;
-export const MAX_DEGRADE_MS = 30 * 24 * 60 * 60 * 1000;
-export const MIN_DEGRADE_MS = 60 * 1000;
 
 function escapeRegExp(s: string): string {
 	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -46,7 +28,7 @@ function escapeRegExp(s: string): string {
  * 纯字母/空格组成的项加词边界（`billing` → `\bbilling\b`），避免命中 `rebilling` 之类的无关文案；
  * 含 `_`、数字、驼峰的项（错误码）按原样匹配。
  */
-export function buildPatterns(configured?: readonly string[]): Pattern[] {
+export function compileDegradePatterns(configured?: readonly string[]): Pattern[] {
 	const provided = (configured ?? [])
 		.filter((p): p is string => typeof p === "string" && p.trim().length > 0)
 		.map((p) => p.trim());
@@ -60,7 +42,7 @@ export function buildPatterns(configured?: readonly string[]): Pattern[] {
 }
 
 /** 返回第一个命中的 pattern（顺序即优先级）；`text` 为空时返回 undefined。 */
-export function matchDegrade(patterns: readonly Pattern[], text: string | undefined): Pattern | undefined {
+export function parseDegrade(patterns: readonly Pattern[], text: string | undefined): Pattern | undefined {
 	if (!text) return undefined;
 	return patterns.find((p) => p.re.test(text));
 }
@@ -109,16 +91,24 @@ export function parseDurationMs(text: string | undefined): number | undefined {
 	return Math.round(value * scale);
 }
 
-export function formatClock(ts: number): string {
-	try {
-		return new Date(ts).toLocaleString();
-	} catch {
-		return String(ts);
-	}
+/**
+ * 降级时长的**统一硬上限**：超过 `maxDegradeMs` 即截断。
+ *
+ * 只钳上界（下限留给调用方语义：`defaultDegradeMs` / 手动时长允许小于 1 分钟，
+ * 只有 `parseResetTs` 解析出的时间戳才保证 ≥ now + 1min）。
+ */
+export function clampDegradeMs(ms: number, maxDegradeMs: number): number {
+	return Math.min(ms, maxDegradeMs);
 }
 
-export function formatClockShort(ts: number): string {
+/**
+ * 时间格式化。
+ * - `full`（默认）：本地化完整时间（提示文案里的「恢复时间」）
+ * - `short`：`MM-DD HH:mm`（页脚状态，宽度敏感，不依赖 locale）
+ */
+export function formatClock(ts: number, style: "full" | "short" = "full"): string {
 	try {
+		if (style === "full") return new Date(ts).toLocaleString();
 		const d = new Date(ts);
 		const pad = (n: number) => String(n).padStart(2, "0");
 		return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;

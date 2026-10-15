@@ -1,17 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { DEFAULT_RESET_PATTERN } from "../src/constants.ts";
 import {
-	buildPatterns,
+	clampDegradeMs,
+	compileDegradePatterns,
 	compileResetPattern,
-	DEFAULT_DEGRADE_MS,
-	DEFAULT_RESET_PATTERN,
-	formatClockShort,
-	matchDegrade,
+	formatClock,
+	parseDegrade,
 	parseDurationMs,
 	parseResetTs,
 } from "../src/degrade.ts";
 
-const patterns = buildPatterns();
+const patterns = compileDegradePatterns();
 
 test("默认 pattern 命中真实额度类错误串", () => {
 	const samples = [
@@ -23,47 +23,47 @@ test("默认 pattern 命中真实额度类错误串", () => {
 		"ServiceOverdue: overdue balance",
 	];
 	for (const sample of samples) {
-		assert.ok(matchDegrade(patterns, sample), `应命中：${sample}`);
+		assert.ok(parseDegrade(patterns, sample), `应命中：${sample}`);
 	}
 });
 
 test("默认 pattern 不误伤普通错误串", () => {
 	for (const sample of ["cannot connect to host", "ECONNRESET", "model not found", "rebilling failed"]) {
-		assert.equal(matchDegrade(patterns, sample), undefined, `不应命中：${sample}`);
+		assert.equal(parseDegrade(patterns, sample), undefined, `不应命中：${sample}`);
 	}
 });
 
 test("词边界：billing 命中独立词、不命中拼接词", () => {
-	const billing = buildPatterns(["billing"]);
-	assert.ok(matchDegrade(billing, "Your billing is overdue"));
-	assert.equal(matchDegrade(billing, "rebilling failed"), undefined);
+	const billing = compileDegradePatterns(["billing"]);
+	assert.ok(parseDegrade(billing, "Your billing is overdue"));
+	assert.equal(parseDegrade(billing, "rebilling failed"), undefined);
 });
 
 test("错误码类 pattern 保持原样匹配（含下划线/驼峰）", () => {
-	assert.ok(matchDegrade(patterns, "x AccountQuotaExceeded: quota"));
-	assert.ok(matchDegrade(patterns, "prefix-insufficient_quota-suffix"));
+	assert.ok(parseDegrade(patterns, "x AccountQuotaExceeded: quota"));
+	assert.ok(parseDegrade(patterns, "prefix-insufficient_quota-suffix"));
 });
 
-test("buildPatterns：空配置回落默认、自定义覆盖默认", () => {
+test("compileDegradePatterns：空配置回落默认、自定义覆盖默认", () => {
 	assert.deepEqual(
-		buildPatterns([""]).map((p) => p.source),
-		buildPatterns().map((p) => p.source),
+		compileDegradePatterns([""]).map((p) => p.source),
+		compileDegradePatterns().map((p) => p.source),
 	);
-	const custom = buildPatterns(["custom_err"]);
+	const custom = compileDegradePatterns(["custom_err"]);
 	assert.equal(custom.length, 1);
 	assert.equal(custom[0]?.source, "custom_err");
-	assert.equal(matchDegrade(custom, "AccountQuotaExceeded"), undefined);
+	assert.equal(parseDegrade(custom, "AccountQuotaExceeded"), undefined);
 });
 
-test("buildPatterns：非法正则字符被转义，不抛异常", () => {
-	const built = buildPatterns(["("]);
+test("compileDegradePatterns：非法正则字符被转义，不抛异常", () => {
+	const built = compileDegradePatterns(["("]);
 	assert.equal(built.length, 1);
-	assert.doesNotThrow(() => matchDegrade(built, "(x)"));
+	assert.doesNotThrow(() => parseDegrade(built, "(x)"));
 });
 
-test("matchDegrade：空文本返回 undefined", () => {
-	assert.equal(matchDegrade(patterns, undefined), undefined);
-	assert.equal(matchDegrade(patterns, ""), undefined);
+test("parseDegrade：空文本返回 undefined", () => {
+	assert.equal(parseDegrade(patterns, undefined), undefined);
+	assert.equal(parseDegrade(patterns, ""), undefined);
 });
 
 test("compileResetPattern：非法正则回落默认", () => {
@@ -123,7 +123,15 @@ test("parseDurationMs：单位与非法输入", () => {
 	assert.equal(parseDurationMs(undefined), undefined);
 });
 
-test("formatClockShort：MM-DD HH:mm", () => {
-	assert.equal(formatClockShort(new Date(2026, 9, 28, 23, 5).getTime()), "10-28 23:05");
-	assert.equal(formatClockShort(new Date(2026, 0, 3, 4, 5).getTime()), "01-03 04:05");
+test("clampDegradeMs：只钳上界（小值原样保留）", () => {
+	assert.equal(clampDegradeMs(5_000, 3_600_000), 5_000);
+	assert.equal(clampDegradeMs(3_600_000, 3_600_000), 3_600_000);
+	assert.equal(clampDegradeMs(7_200_000, 3_600_000), 3_600_000);
+});
+
+test("formatClock：full 与 short 两种形态", () => {
+	const ts = new Date(2026, 9, 28, 23, 5).getTime();
+	assert.equal(formatClock(ts), new Date(ts).toLocaleString());
+	assert.equal(formatClock(ts, "short"), "10-28 23:05");
+	assert.equal(formatClock(new Date(2026, 0, 3, 4, 5).getTime(), "short"), "01-03 04:05");
 });

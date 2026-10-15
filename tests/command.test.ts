@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { COMMAND_USAGE, parseCommandArgs } from "../src/command.ts";
+import { COMMAND_USAGE } from "../src/constants.ts";
+import { parseCommandArgs } from "../src/command.ts";
 
 test("parseCommandArgs：默认与显式 status", () => {
 	assert.deepEqual(parseCommandArgs(), { action: "status" });

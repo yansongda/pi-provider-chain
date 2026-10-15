@@ -10,14 +10,15 @@
 
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { DEGRADE_REASON, PRUNE_AFTER_MS, STATE_TMP_SUFFIX, STATE_VERSION } from "./constants.ts";
 
 export interface DegradeEntry {
 	/** 生效档位：0 = 主用，1..n = fallbacks 下标 */
 	level: number;
 	/** 降级截止时间戳（ms） */
 	until: number;
-	/** 命中原因（pattern 原文、`manual`、`recovered` 等） */
-	code: string;
+	/** 降级原因（pattern 原文、`manual`、`recovered` 等） */
+	reason: string;
 	/** 写入时间戳（ms） */
 	at: number;
 }
@@ -27,11 +28,8 @@ export interface StateFile {
 	degraded: Record<string, DegradeEntry>;
 }
 
-/** 过期条目保留时长：超过 `until + PRUNE_AFTER_MS` 的条目在写入时被清理 */
-export const PRUNE_AFTER_MS = 24 * 60 * 60 * 1000;
-
 function stateWith(degraded: Record<string, DegradeEntry>): StateFile {
-	return { version: 1, degraded };
+	return { version: STATE_VERSION, degraded };
 }
 
 export function emptyState(): StateFile {
@@ -40,13 +38,13 @@ export function emptyState(): StateFile {
 
 function normalizeEntry(value: unknown): DegradeEntry | undefined {
 	if (!value || typeof value !== "object") return undefined;
-	const v = value as { level?: unknown; until?: unknown; code?: unknown; at?: unknown };
+	const v = value as { level?: unknown; until?: unknown; reason?: unknown; at?: unknown };
 	if (typeof v.level !== "number" || !Number.isFinite(v.level)) return undefined;
 	if (typeof v.until !== "number" || !Number.isFinite(v.until)) return undefined;
 	return {
 		level: Math.trunc(v.level),
 		until: v.until,
-		code: typeof v.code === "string" ? v.code : "quota",
+		reason: typeof v.reason === "string" ? v.reason : DEGRADE_REASON.QUOTA,
 		at: typeof v.at === "number" && Number.isFinite(v.at) ? v.at : Date.now(),
 	};
 }
@@ -67,26 +65,26 @@ export function readState(path: string): StateFile {
 }
 
 /** 仍处于降级窗口内的条目；已过期或结构非法返回 undefined。 */
-export function activeEntry(path: string, key: string, now: number = Date.now()): DegradeEntry | undefined {
-	const entry = readState(path).degraded[key];
+export function activeEntry(path: string, provider: string, now: number = Date.now()): DegradeEntry | undefined {
+	const entry = readState(path).degraded[provider];
 	if (!entry || entry.until <= now) return undefined;
 	return entry;
 }
 
 function sameEntry(a: DegradeEntry | undefined, b: DegradeEntry): boolean {
-	return !!a && a.level === b.level && a.until === b.until && a.code === b.code;
+	return !!a && a.level === b.level && a.until === b.until && a.reason === b.reason;
 }
 
 function prune(state: StateFile, now: number): StateFile {
 	const degraded: Record<string, DegradeEntry> = {};
-	for (const [key, entry] of Object.entries(state.degraded)) {
-		if (entry.until + PRUNE_AFTER_MS >= now) degraded[key] = entry;
+	for (const [provider, entry] of Object.entries(state.degraded)) {
+		if (entry.until + PRUNE_AFTER_MS >= now) degraded[provider] = entry;
 	}
 	return stateWith(degraded);
 }
 
 function writeState(path: string, data: StateFile): { ok: true } | { ok: false; error: string } {
-	const tmp = `${path}.${process.pid}.tmp`;
+	const tmp = `${path}.${process.pid}${STATE_TMP_SUFFIX}`;
 	try {
 		mkdirSync(dirname(path), { recursive: true });
 		writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, "utf8");
@@ -111,28 +109,30 @@ function writeState(path: string, data: StateFile): { ok: true } | { ok: false; 
  *
  * 返回值里的 `entry` 是**实际生效**的条目（可能因「单调前进」而保留盘上更深的档位）；
  * `changed` 表示相对盘上是否有变化（供 UI 去重提示）；写入失败时 `writeError` 有值且不抛异常。
+ *
+ * 参数 `provider` 是状态键：当前恒为链路主用的 provider（同一 provider 下的虚拟模型共享档位）。
  */
 export function upsertEntry(
 	path: string,
-	key: string,
+	provider: string,
 	entry: DegradeEntry,
 	now: number = Date.now(),
 ): { entry: DegradeEntry; changed: boolean; writeError?: string } {
 	const current = readState(path); // 写盘前紧邻读取，缩小并发丢更新的窗口
-	const previous = current.degraded[key];
+	const previous = current.degraded[provider];
 	const merged = previous && previous.until > now && previous.level > entry.level ? previous : entry;
 	const changed = !sameEntry(previous, merged);
-	const written = writeState(path, prune({ ...current, degraded: { ...current.degraded, [key]: merged } }, now));
+	const written = writeState(path, prune({ ...current, degraded: { ...current.degraded, [provider]: merged } }, now));
 	if (!written.ok) return { entry: merged, changed, writeError: written.error };
 	return { entry: merged, changed };
 }
 
-/** 清除某个 key 的降级状态（不存在也视为成功）；与 `upsertEntry` 一致，写入时顺带清理过期历史条目。 */
-export function clearEntry(path: string, key: string, now: number = Date.now()): { ok: boolean; error?: string } {
+/** 清除某个 provider 的降级状态（不存在也视为成功）；与 `upsertEntry` 一致，写入时顺带清理过期历史条目。 */
+export function clearEntry(path: string, provider: string, now: number = Date.now()): { ok: boolean; error?: string } {
 	const state = readState(path);
-	if (!(key in state.degraded)) return { ok: true };
+	if (!(provider in state.degraded)) return { ok: true };
 	const degraded = { ...state.degraded };
-	delete degraded[key];
+	delete degraded[provider];
 	const written = writeState(path, prune(stateWith(degraded), now));
 	if (!written.ok) return { ok: false, error: written.error };
 	return { ok: true };

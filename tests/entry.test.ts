@@ -22,6 +22,7 @@ interface CapturedModel {
 	id: string;
 	name: string;
 	thinkingLevels?: readonly string[];
+	input?: readonly string[];
 	route: (request: unknown, ctx: unknown) => RouteResult | Promise<RouteResult>;
 }
 
@@ -134,7 +135,7 @@ function makeCtx() {
 
 function readDegraded(dir: string) {
 	return JSON.parse(readFileSync(join(dir, "provider-fallback-state.json"), "utf8")) as {
-		degraded: Record<string, { level: number; code: string; until: number }>;
+		degraded: Record<string, { level: number; reason: string; until: number }>;
 	};
 }
 
@@ -172,7 +173,7 @@ test("状态文件已降级：route() 返回备用物理模型", async () => {
 		config: CONFIG,
 		state: {
 			version: 1,
-			degraded: { volcengine: { level: 1, until: Date.now() + 3_600_000, code: "e2e", at: Date.now() } },
+			degraded: { volcengine: { level: 1, until: Date.now() + 3_600_000, reason: "e2e", at: Date.now() } },
 		},
 	});
 	const captured = await loadExtension(dir);
@@ -205,10 +206,20 @@ test("retry 命中额度错误：自动推进档位、写状态、notify 一次�
 
 	const state = readDegraded(dir);
 	assert.equal(state.degraded.volcengine?.level, 1);
-	assert.equal(state.degraded.volcengine?.code, "AccountQuotaExceeded");
+	assert.equal(state.degraded.volcengine?.reason, "AccountQuotaExceeded");
 	assert.equal(notifications.length, 1);
 	assert.ok(notifications[0]!.message.includes("AccountQuotaExceeded"));
 	assert.ok(notifications[0]!.message.includes("workbuddy/deepseek-v4.1-flash"));
+});
+
+test("models[].input：声明则透传给注册定义，未声明则不携带该字段", async () => {
+	const declared = await loadExtension(
+		makeAgentDir({ config: { ...CONFIG, models: [{ ...CONFIG.models[0], input: ["text"] }] } }),
+	);
+	assert.deepEqual(declared.models[0]?.input, ["text"]);
+
+	const omitted = await loadExtension(makeAgentDir({ config: CONFIG }));
+	assert.equal(omitted.models[0]?.input, undefined, "未声明时不传，保持宿主默认（text + image）");
 });
 
 test("配置缺失：不注册虚拟模型，session_start 提示未启用", async () => {
@@ -249,7 +260,7 @@ test("agent_before_settle：额度错误 → 写降级状态、剔除失败消�
 	assert.deepEqual(result, { entries: [{ type: "context_edit", targetId: "entry-1", replacement: null }], continue: true });
 	const state = readDegraded(dir);
 	assert.equal(state.degraded.volcengine?.level, 1);
-	assert.equal(state.degraded.volcengine?.code, "InvalidSubscription");
+	assert.equal(state.degraded.volcengine?.reason, "InvalidSubscription");
 	assert.equal(notifications.length, 1);
 	assert.ok(notifications[0]!.message.includes("workbuddy/deepseek-v4.1-flash"));
 });
@@ -308,7 +319,7 @@ test("message_end：过期降级后的首次主用成功 → 提示恢复、写�
 		config: CONFIG,
 		state: {
 			version: 1,
-			degraded: { volcengine: { level: 1, until: Date.now() - 1000, code: "AccountQuotaExceeded", at: Date.now() - 3_600_000 } },
+			degraded: { volcengine: { level: 1, until: Date.now() - 1000, reason: "AccountQuotaExceeded", at: Date.now() - 3_600_000 } },
 		},
 	});
 	const captured = await loadExtension(dir);
@@ -320,7 +331,7 @@ test("message_end：过期降级后的首次主用成功 → 提示恢复、写�
 	assert.equal(notifications.length, 1);
 	assert.ok(notifications[0]!.message.includes("已恢复"));
 	assert.equal(readDegraded(dir).degraded.volcengine?.level, 0, "应写入 level=0 墓碑");
-	assert.equal(readDegraded(dir).degraded.volcengine?.code, "recovered");
+	assert.equal(readDegraded(dir).degraded.volcengine?.reason, "recovered");
 	assert.equal(status.at(-1), undefined, "页脚应被清空");
 
 	messageEnd?.({ message: success }, ctx);
@@ -345,7 +356,7 @@ test("/fallback degrade 与 reset：手动降级写状态，reset 清除并刷�
 	assert.ok(notifications.at(-1)?.message.includes("已手动降级"));
 	const state = readDegraded(dir);
 	assert.equal(state.degraded.volcengine?.level, 1);
-	assert.equal(state.degraded.volcengine?.code, "manual");
+	assert.equal(state.degraded.volcengine?.reason, "manual");
 	assert.ok(status.at(-1)?.includes("workbuddy"), "页脚应显示备用 provider");
 
 	await command.handler("reset", ctx);
@@ -368,7 +379,7 @@ test("/fallback degrade：盘上已有更深档位时，提示实际生效的档
 	const activeUntil = Date.now() + 7_200_000;
 	const dir = makeAgentDir({
 		config,
-		state: { version: 1, degraded: { volcengine: { level: 2, until: activeUntil, code: "AccountQuotaExceeded", at: Date.now() } } },
+		state: { version: 1, degraded: { volcengine: { level: 2, until: activeUntil, reason: "AccountQuotaExceeded", at: Date.now() } } },
 	});
 	const captured = await loadExtension(dir);
 	const { ctx, notifications } = makeCtx();
@@ -407,8 +418,8 @@ test("session_start：多个 provider 同时降级时页脚汇总，不互相覆
 		state: {
 			version: 1,
 			degraded: {
-				volcengine: { level: 1, until: Date.now() + 3_600_000, code: "q", at: Date.now() },
-				openrouter: { level: 1, until: Date.now() + 3_600_000, code: "q", at: Date.now() },
+				volcengine: { level: 1, until: Date.now() + 3_600_000, reason: "q", at: Date.now() },
+				openrouter: { level: 1, until: Date.now() + 3_600_000, reason: "q", at: Date.now() },
 			},
 		},
 	});

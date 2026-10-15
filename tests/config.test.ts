@@ -4,7 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { agentDir, defaultConfigPath, defaultStateFile, expandPath, loadConfig } from "../src/config.ts";
-import { DEFAULT_DEGRADE_MS, DEFAULT_RESET_PATTERN, MAX_DEGRADE_MS } from "../src/degrade.ts";
+import { DEFAULT_DEGRADE_MS, DEFAULT_RESET_PATTERN, MAX_DEGRADE_MS } from "../src/constants.ts";
 
 function writeConfig(content: unknown): string {
 	const path = join(mkdtempSync(join(tmpdir(), "pf-config-")), "provider-fallback.json");
@@ -35,7 +35,7 @@ test("合法最小配置：默认路径与链路解析", () => {
 		{ provider: "volcengine", id: "deepseek-v4.1-flash" },
 		{ provider: "workbuddy", id: "deepseek-v4.1-flash" },
 	]);
-	assert.equal(result.loaded.models[0]?.key, "volcengine");
+	assert.equal(result.loaded.models[0]?.stateKey, "volcengine", "状态键 = primary 的 provider");
 	assert.equal(result.loaded.defaultDegradeMs, DEFAULT_DEGRADE_MS);
 	assert.equal(result.loaded.maxDegradeMs, MAX_DEGRADE_MS);
 	assert.equal(result.loaded.transcriptNotice, true);
@@ -113,6 +113,21 @@ test("thinkingLevels 非数组 → 视为未声明（由装配层回落全部档
 	assert.equal(result.ok, true);
 	if (!result.ok) return;
 	assert.equal(result.loaded.models[0]?.config.thinkingLevels, undefined);
+});
+
+test("input 归一化：只保留宿主支持的输入类型并去重，非法/空视为未声明", () => {
+	const inputOf = (input: unknown) => {
+		const path = writeConfig({ ...MINIMAL, models: [{ ...MINIMAL.models[0], input }] });
+		const result = loadConfig(path, "/tmp/pf-agent");
+		assert.equal(result.ok, true);
+		return result.ok ? result.loaded.models[0]?.config.input : undefined;
+	};
+	assert.deepEqual(inputOf(["text", "image"]), ["text", "image"]);
+	assert.deepEqual(inputOf(["image", "image", "text"]), ["image", "text"]);
+	assert.deepEqual(inputOf(["text", "audio", 3]), ["text"]);
+	assert.equal(inputOf([]), undefined);
+	assert.equal(inputOf(["audio"]), undefined);
+	assert.equal(inputOf("text"), undefined);
 });
 
 test("models[] 重复 id → 配置报错", () => {
