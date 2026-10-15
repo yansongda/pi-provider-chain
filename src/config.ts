@@ -144,11 +144,11 @@ export function loadConfig(path: string = defaultConfigPath(), dir: string = age
 	for (const entry of raw.models as RoutingModelConfig[]) {
 		const id = typeof entry?.id === "string" ? entry.id.trim() : "";
 		const rawChain = Array.isArray(entry?.chain) ? entry.chain : [];
-		const primary = parseRef(String(rawChain[0] ?? ""));
-		if (!id || !primary) return { ok: false, error: `models[] 条目缺少 id 或合法 chain[0]：${JSON.stringify(entry)}` };
+		const primaryRef = parseRef(String(rawChain[0] ?? ""));
+		if (!id || !primaryRef) return { ok: false, error: `models[] 条目缺少 id 或合法 chain[0]：${JSON.stringify(entry)}` };
 		if (seenIds.has(id)) return { ok: false, error: `models[] 存在重复 id：${id}` };
 		seenIds.add(id);
-		const chain: [ModelRef, ...ModelRef[]] = [primary];
+		const chain: [ModelRef, ...ModelRef[]] = [primaryRef];
 		// 链长建议 ≤ 5（业界网关默认上限）：链过长会让一次故障在多个 provider 上依次付出失败代价
 		for (const item of rawChain.slice(1)) {
 			const ref = parseRef(String(item));
@@ -163,7 +163,7 @@ export function loadConfig(path: string = defaultConfigPath(), dir: string = age
 				contextWindow: optionalPositiveNumber(entry?.contextWindow),
 				maxTokens: optionalPositiveNumber(entry?.maxTokens),
 			},
-			stateKey: primary.provider,
+			stateKey: primaryRef.provider,
 			chain,
 		});
 	}
