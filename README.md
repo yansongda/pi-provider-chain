@@ -140,13 +140,6 @@ tests/                            node:test 单测（含 stub pi 的装配集成
 docs/                             设计文档
 ```
 
-## 发布
-
-1. **首次发布（人工）**：`npm login` → `npm whoami` → 确认 `@yansongda` scope → `npm publish --access public`。
-2. 在 GitHub 仓库配置 `NPM_TOKEN` secret（npm Automation token）。
-3. 之后随 tag 自动发布：`npm version patch && git push --tags` → `.github/workflows/release.yml` 跑 test + typecheck，`npm publish --provenance` 并创建 GitHub Release。
-4. 也可以改用 npm Trusted Publishing（OIDC）替代 `NPM_TOKEN`，此时删掉 workflow 里的 `NODE_AUTH_TOKEN` 即可。
-
 ## License
 
 MIT
