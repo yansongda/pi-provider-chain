@@ -3,7 +3,16 @@ import { test } from "node:test";
 import type { LoadedModel } from "../src/config.ts";
 import { formatClock, formatClockShort } from "../src/degrade.ts";
 import type { DegradeEntry } from "../src/state.ts";
-import { commandStatusHeader, degradeNotice, describeModel, recoverNotice, statusText } from "../src/ui.ts";
+import {
+	commandStatusHeader,
+	degradeNotice,
+	describeModel,
+	ENTRY_PREFIX,
+	entryDegradeLine,
+	entryRecoverText,
+	recoverNotice,
+	statusText,
+} from "../src/ui.ts";
 
 const UNTIL = new Date(2026, 9, 28, 23, 59).getTime();
 
@@ -28,9 +37,26 @@ test("degradeNotice：正常与写失败两种文案", () => {
 	assert.ok(failed.includes("仅本进程生效"));
 });
 
-test("statusText / recoverNotice", () => {
-	assert.equal(statusText("workbuddy", UNTIL), `⚠ 备用 workbuddy · ${formatClockShort(UNTIL)}`);
+test("statusText：单条紧凑、多条汇总、无条目清空", () => {
+	assert.equal(statusText([{ provider: "workbuddy", until: UNTIL }]), `⚠ 备用 workbuddy · ${formatClockShort(UNTIL)}`);
+	assert.equal(statusText([]), undefined);
+	assert.equal(
+		statusText([
+			{ provider: "workbuddy", until: UNTIL },
+			{ provider: "openrouter", until: UNTIL + 60_000 },
+		]),
+		"⚠ 备用 ×2: workbuddy, openrouter",
+	);
 	assert.equal(recoverNotice("volcengine"), "✅ volcengine 已恢复，后续请求回到主用");
+});
+
+test("entry 文案：降级行/恢复行/前缀", () => {
+	assert.equal(ENTRY_PREFIX, "[fallback]");
+	assert.deepEqual(entryDegradeLine({ code: "AccountQuotaExceeded", to: "workbuddy/deepseek-v4.1-flash", until: UNTIL }), {
+		text: "⚠ 额度受限（AccountQuotaExceeded）→ 降级到 workbuddy/deepseek-v4.1-flash",
+		dim: `  ·  恢复 ${formatClock(UNTIL)}`,
+	});
+	assert.equal(entryRecoverText("volcengine"), "✅ 已恢复主用 volcengine");
 });
 
 test("describeModel：降级中（含原因与恢复时间）", () => {
@@ -75,8 +101,10 @@ test("commandStatusHeader：含配置与状态文件路径", () => {
 test("ui 模块只做格式化：输出不含 undefined/NaN", () => {
 	const text = [
 		degradeNotice({ key: "k", code: "c", to: "t", until: UNTIL, writeFailed: false }),
-		statusText("p", UNTIL),
+		statusText([{ provider: "p", until: UNTIL }]),
 		recoverNotice("p"),
+		entryRecoverText("p"),
+		...Object.values(entryDegradeLine({ code: "c", to: "t", until: UNTIL })),
 		...describeModel({ virtualProvider: "v", model: MODEL, active: ACTIVE }),
 		...commandStatusHeader({ configPath: "c", stateFile: "s" }),
 	].join("\n");

@@ -49,7 +49,6 @@ export function decideRoute(input: RouteInput): RouteDecision | undefined {
 	const raw = Number.isFinite(input.level) ? Math.trunc(input.level) : 0;
 	const level = Math.min(Math.max(raw, 0), chain.length - 1);
 	const current = chain[level];
-	if (!current) return undefined;
 
 	if (reason === "retry") {
 		if (failedRef && levelOfRef(chain, failedRef) === level && isAvailable(current)) {
@@ -63,11 +62,11 @@ export function decideRoute(input: RouteInput): RouteDecision | undefined {
 
 	for (let i = level; i < chain.length; i++) {
 		const ref = chain[i];
-		if (ref && isAvailable(ref)) return { level: i, ref, keepThinkingLevel: false };
+		if (isAvailable(ref)) return { level: i, ref, keepThinkingLevel: false };
 	}
 	for (let i = level - 1; i >= 0; i--) {
 		const ref = chain[i];
-		if (ref && isAvailable(ref)) return { level: i, ref, keepThinkingLevel: false };
+		if (isAvailable(ref)) return { level: i, ref, keepThinkingLevel: false };
 	}
 	return undefined;
 }

@@ -120,6 +120,24 @@ test("degradePatterns 覆盖默认值", () => {
 	);
 });
 
+test("degradePatterns 为空数组 → 回落内置默认（不再报错）", () => {
+	const path = writeConfig({ ...MINIMAL, degradePatterns: [] });
+	const result = loadConfig(path, "/tmp/pf-agent");
+	assert.equal(result.ok, true);
+	if (!result.ok) return;
+	assert.equal(result.loaded.patterns.length > 0, true);
+	assert.equal(result.loaded.patterns[0]?.source, "AccountQuotaExceeded");
+});
+
+test("defaultDegradeMs 被 maxDegradeMs 钳制（maxDegradeMs 是硬上限）", () => {
+	const path = writeConfig({ ...MINIMAL, defaultDegradeMs: 7 * 24 * 3600_000, maxDegradeMs: 3600_000 });
+	const result = loadConfig(path, "/tmp/pf-agent");
+	assert.equal(result.ok, true);
+	if (!result.ok) return;
+	assert.equal(result.loaded.maxDegradeMs, 3600_000);
+	assert.equal(result.loaded.defaultDegradeMs, 3600_000);
+});
+
 test("agentDir/defaultConfigPath/defaultStateFile 跟随 PI_CODING_AGENT_DIR", () => {
 	const original = process.env.PI_CODING_AGENT_DIR;
 	process.env.PI_CODING_AGENT_DIR = "/tmp/pf-agent-env";

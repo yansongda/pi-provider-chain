@@ -87,10 +87,10 @@ export function parseResetTs(
 	const re = resetRe.global || resetRe.sticky ? new RegExp(resetRe.source, resetRe.flags.replace(/[gy]/g, "")) : resetRe;
 	const m = re.exec(text);
 	if (!m) return undefined;
-	const date = m[1];
-	const time = m[2];
+	// 配置的正则可能不带捕获组：按 string | undefined 处理，避免把字面量 "undefined" 拼进时间串
+	const [date, time, tz] = m.slice(1) as Array<string | undefined>;
 	if (!date || !time) return undefined;
-	const tzRaw = m[3] ? m[3].replace(/^([+-]\d{2})(\d{2})$/, "$1:$2") : undefined;
+	const tzRaw = tz ? tz.replace(/^([+-]\d{2})(\d{2})$/, "$1:$2") : undefined;
 	const ts = Date.parse(`${date}T${time}${tzRaw ?? ""}`);
 	if (!Number.isFinite(ts)) return undefined;
 	return Math.min(Math.max(ts, opts.now + MIN_DEGRADE_MS), opts.now + opts.maxDegradeMs);
@@ -101,7 +101,7 @@ export function parseDurationMs(text: string | undefined): number | undefined {
 	const raw = (text ?? "").trim().toLowerCase();
 	if (!raw) return undefined;
 	const m = /^(\d+(?:\.\d+)?)\s*(ms|s|m|h|d)?$/.exec(raw);
-	if (!m || !m[1]) return undefined;
+	if (!m) return undefined;
 	const value = Number.parseFloat(m[1]);
 	if (!Number.isFinite(value) || value <= 0) return undefined;
 	const unit = m[2] ?? "m";

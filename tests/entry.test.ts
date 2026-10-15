@@ -9,7 +9,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
  * 装配层集成测试：stub pi + 临时 AGENT_DIR。
  *
  * 覆盖：虚拟模型注册、无降级时走主用、状态文件里有降级时走备用、
- * retry 命中额度错误时自动推进档位并写状态、配置缺失时的降级路径、/route 命令注册。
+ * retry 命中额度错误时自动推进档位并写状态、配置缺失时的降级路径、/fallback 命令注册与执行。
  */
 
 interface RouteResult {
@@ -28,9 +28,16 @@ interface CapturedModel {
 interface StubPi {
 	registerEntryRenderer: (type: string, renderer: unknown) => void;
 	registerVirtualModel: (definition: CapturedModel) => void;
-	registerCommand: (name: string, options: { description?: string; handler: (args: string, ctx: unknown) => Promise<void> }) => void;
+	registerCommand: (name: string, options: Omit<CapturedCommand, "name">) => void;
 	on: (type: string, handler: (event: unknown, ctx: unknown) => unknown) => void;
 	appendEntry: (type: string, data?: unknown) => void;
+}
+
+interface CapturedCommand {
+	name: string;
+	description?: string;
+	getArgumentCompletions?: (prefix: string) => Array<{ value: string }> | null;
+	handler: (args: string, ctx: unknown) => Promise<void>;
 }
 
 const CONFIG = {
@@ -53,19 +60,37 @@ function makeAgentDir(options: { config?: unknown; state?: unknown } = {}): stri
 	return dir;
 }
 
+const CONFIG2 = {
+	virtualProvider: "yansongda",
+	models: [
+		{ id: "a", primary: "volcengine/a", fallbacks: ["workbuddy/a"] },
+		{ id: "b", primary: "openrouter/b", fallbacks: ["glm/b"] },
+	],
+};
+
 async function loadExtension(dir: string) {
 	process.env.PI_CODING_AGENT_DIR = dir;
 	const factory = (await import("../extensions/provider-fallback.ts")).default;
-	const captured: { models: CapturedModel[]; commands: string[]; handlers: Map<string, (event: unknown, ctx: unknown) => unknown>; entries: unknown[] } = {
+	const captured: {
+		models: CapturedModel[];
+		commands: string[];
+		commandOptions: Map<string, CapturedCommand>;
+		handlers: Map<string, (event: unknown, ctx: unknown) => unknown>;
+		entries: unknown[];
+	} = {
 		models: [],
 		commands: [],
+		commandOptions: new Map(),
 		handlers: new Map(),
 		entries: [],
 	};
 	const stub: StubPi = {
 		registerEntryRenderer: () => {},
 		registerVirtualModel: (definition) => captured.models.push(definition),
-		registerCommand: (name) => captured.commands.push(name),
+		registerCommand: (name, options) => {
+			captured.commands.push(name);
+			captured.commandOptions.set(name, { name, ...options });
+		},
 		on: (type, handler) => captured.handlers.set(type, handler),
 		appendEntry: (_type, data) => captured.entries.push(data),
 	};
@@ -94,9 +119,22 @@ function makeCtx() {
 	};
 }
 
-test("注册虚拟模型与 /route 命令（provider / id / 思考档位来自配置）", async () => {
+function readDegraded(dir: string) {
+	return JSON.parse(readFileSync(join(dir, "provider-fallback-state.json"), "utf8")) as {
+		degraded: Record<string, { level: number; code: string; until: number }>;
+	};
+}
+
+test("注册虚拟模型与 /fallback 命令（provider / id / 思考档位来自配置）", async () => {
 	const captured = await loadExtension(makeAgentDir({ config: CONFIG }));
-	assert.deepEqual(captured.commands, ["route"]);
+	assert.deepEqual(captured.commands, ["fallback"]);
+	const command = captured.commandOptions.get("fallback");
+	assert.ok(command?.description?.includes("degrade"), "description 应含主要子命令 degrade");
+	assert.deepEqual(
+		command?.getArgumentCompletions?.("res")?.map((item) => item.value),
+		["reset"],
+	);
+	assert.equal(command?.getArgumentCompletions?.("")?.length, 4);
 	assert.equal(captured.models.length, 1);
 	const model = captured.models[0];
 	assert.ok(model);
@@ -152,9 +190,7 @@ test("retry 命中额度错误：自动推进档位、写状态、notify 一次�
 	assert.equal(decision.model.provider, "workbuddy");
 	assert.equal(decision.thinkingLevel, "max");
 
-	const state = JSON.parse(readFileSync(join(dir, "provider-fallback-state.json"), "utf8")) as {
-		degraded: Record<string, { level: number; code: string }>;
-	};
+	const state = readDegraded(dir);
 	assert.equal(state.degraded.volcengine?.level, 1);
 	assert.equal(state.degraded.volcengine?.code, "AccountQuotaExceeded");
 	assert.equal(notifications.length, 1);
@@ -165,7 +201,7 @@ test("retry 命中额度错误：自动推进档位、写状态、notify 一次�
 test("配置缺失：不注册虚拟模型，session_start 提示未启用", async () => {
 	const captured = await loadExtension(makeAgentDir());
 	assert.equal(captured.models.length, 0);
-	assert.deepEqual(captured.commands, ["route"]);
+	assert.deepEqual(captured.commands, ["fallback"]);
 	const { ctx, notifications } = makeCtx();
 	captured.handlers.get("session_start")?.({ type: "session_start" }, ctx);
 	assert.equal(notifications.length, 1);
@@ -198,9 +234,7 @@ test("agent_before_settle：额度错误 → 写降级状态、剔除失败消�
 	);
 
 	assert.deepEqual(result, { entries: [{ type: "context_edit", targetId: "entry-1", replacement: null }], continue: true });
-	const state = JSON.parse(readFileSync(join(dir, "provider-fallback-state.json"), "utf8")) as {
-		degraded: Record<string, { level: number; code: string }>;
-	};
+	const state = readDegraded(dir);
 	assert.equal(state.degraded.volcengine?.level, 1);
 	assert.equal(state.degraded.volcengine?.code, "InvalidSubscription");
 	assert.equal(notifications.length, 1);
@@ -225,4 +259,116 @@ test("agent_before_settle：非额度错误不接管", async () => {
 		ctx,
 	);
 	assert.equal(result, undefined);
+});
+
+test("agent_before_settle：找不到失败消息所在 entry 时，仍写降级状态但不续跑", async () => {
+	const dir = makeAgentDir({ config: CONFIG });
+	const captured = await loadExtension(dir);
+	const { ctx, notifications } = makeCtx();
+	const failedAssistant = {
+		role: "assistant",
+		provider: "volcengine",
+		model: "deepseek-v4.1-flash",
+		stopReason: "error",
+		errorMessage: "AccountQuotaExceeded: no reset info",
+	};
+	const result = captured.handlers.get("agent_before_settle")?.(
+		{
+			outcome: "error",
+			entries: [],
+			continue: false,
+			context: {
+				contextEntries: [{ sourceEntry: {}, messages: [failedAssistant] }], // 无 id → 无法剔除
+				contextMessages: [failedAssistant],
+			},
+		},
+		ctx,
+	);
+
+	assert.equal(result, undefined, "不应续跑");
+	assert.equal(readDegraded(dir).degraded.volcengine?.level, 1, "仍应写入降级状态，让下一次请求走备用");
+	assert.equal(notifications.length, 1);
+});
+
+test("message_end：过期降级后的首次主用成功 → 提示恢复、写墓碑、不重复提示", async () => {
+	const dir = makeAgentDir({
+		config: CONFIG,
+		state: {
+			version: 1,
+			degraded: { volcengine: { level: 1, until: Date.now() - 1000, code: "AccountQuotaExceeded", at: Date.now() - 3_600_000 } },
+		},
+	});
+	const captured = await loadExtension(dir);
+	const { ctx, notifications, status } = makeCtx();
+	const messageEnd = captured.handlers.get("message_end");
+	const success = { role: "assistant", provider: "volcengine", model: "deepseek-v4.1-flash", stopReason: "endTurn" };
+
+	messageEnd?.({ message: success }, ctx);
+	assert.equal(notifications.length, 1);
+	assert.ok(notifications[0]!.message.includes("已恢复"));
+	assert.equal(readDegraded(dir).degraded.volcengine?.level, 0, "应写入 level=0 墓碑");
+	assert.equal(readDegraded(dir).degraded.volcengine?.code, "recovered");
+	assert.equal(status.at(-1), undefined, "页脚应被清空");
+
+	messageEnd?.({ message: success }, ctx);
+	assert.equal(notifications.length, 1, "墓碑存在时不应重复提示");
+});
+
+test("message_end：非主用 provider 的成功响应不触发恢复逻辑", async () => {
+	const captured = await loadExtension(makeAgentDir({ config: CONFIG }));
+	const { ctx, notifications } = makeCtx();
+	captured.handlers.get("message_end")?.({ message: { role: "assistant", provider: "workbuddy", stopReason: "endTurn" } }, ctx);
+	assert.equal(notifications.length, 0);
+});
+
+test("/fallback degrade 与 reset：手动降级写状态，reset 清除并刷新页脚", async () => {
+	const dir = makeAgentDir({ config: CONFIG });
+	const captured = await loadExtension(dir);
+	const { ctx, notifications, status } = makeCtx();
+	const command = captured.commandOptions.get("fallback");
+	assert.ok(command);
+
+	await command.handler("degrade 30m", ctx);
+	assert.ok(notifications.at(-1)?.message.includes("已手动降级"));
+	const state = readDegraded(dir);
+	assert.equal(state.degraded.volcengine?.level, 1);
+	assert.equal(state.degraded.volcengine?.code, "manual");
+	assert.ok(status.at(-1)?.includes("workbuddy"), "页脚应显示备用 provider");
+
+	await command.handler("reset", ctx);
+	assert.equal(readDegraded(dir).degraded.volcengine, undefined);
+	assert.ok(notifications.at(-1)?.message.includes("已清除"));
+	assert.equal(status.at(-1), undefined, "reset 后页脚应清空");
+});
+
+test("/fallback status：未知子命令给出提示，已知 status 输出链路", async () => {
+	const captured = await loadExtension(makeAgentDir({ config: CONFIG }));
+	const { ctx, notifications } = makeCtx();
+	const command = captured.commandOptions.get("fallback");
+	assert.ok(command);
+
+	await command.handler("nope", ctx);
+	assert.ok(notifications.at(-1)?.message.includes("未知子命令：nope"));
+
+	await command.handler("status", ctx);
+	const output = notifications.at(-1)!.message;
+	assert.ok(output.includes("yansongda/deepseek-v4.1-flash"));
+	assert.ok(output.includes("volcengine/deepseek-v4.1-flash  →  workbuddy/deepseek-v4.1-flash"));
+});
+
+test("session_start：多个 provider 同时降级时页脚汇总，不互相覆盖", async () => {
+	const dir = makeAgentDir({
+		config: CONFIG2,
+		state: {
+			version: 1,
+			degraded: {
+				volcengine: { level: 1, until: Date.now() + 3_600_000, code: "q", at: Date.now() },
+				openrouter: { level: 1, until: Date.now() + 3_600_000, code: "q", at: Date.now() },
+			},
+		},
+	});
+	const captured = await loadExtension(dir);
+	const { ctx, status } = makeCtx();
+	captured.handlers.get("session_start")?.({ type: "session_start" }, ctx);
+	assert.equal(status.at(-1), "⚠ 备用 ×2: workbuddy, glm");
 });

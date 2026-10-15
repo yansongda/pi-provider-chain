@@ -32,8 +32,8 @@ export interface LoadedModel {
 	config: RoutingModelConfig;
 	/** 状态文件的键：primary 的 provider（同一 provider 下的虚拟模型共享档位） */
 	key: string;
-	/** 解析后的链路：[primary, ...合法 fallbacks] */
-	chain: ModelRef[];
+	/** 解析后的链路：`[primary, ...合法 fallbacks]`（至少一项） */
+	chain: [ModelRef, ...ModelRef[]];
 }
 
 export interface LoadedConfig {
@@ -102,7 +102,8 @@ export function loadConfig(path: string = defaultConfigPath(), dir: string = age
 		const id = typeof entry?.id === "string" ? entry.id.trim() : "";
 		const primary = parseRef(String(entry?.primary ?? ""));
 		if (!id || !primary) return { ok: false, error: `models[] 条目缺少 id 或合法 primary：${JSON.stringify(entry)}` };
-		const chain = [primary];
+		const chain: [ModelRef, ...ModelRef[]] = [primary];
+		// 链长建议 ≤ 5（业界网关默认上限）：链过长会让一次故障在多个 provider 上依次付出失败代价
 		for (const fb of entry?.fallbacks ?? []) {
 			const ref = parseRef(String(fb));
 			if (ref) chain.push(ref);
@@ -110,19 +111,23 @@ export function loadConfig(path: string = defaultConfigPath(), dir: string = age
 		models.push({ config: { ...entry, id }, key: primary.provider, chain });
 	}
 
+	// degradePatterns 缺省 / 为空 / 全是空白 → 使用内置默认列表；非空列表完全覆盖默认值
 	const patterns = buildPatterns(Array.isArray(raw.degradePatterns) ? (raw.degradePatterns as string[]) : undefined);
-	if (patterns.length === 0) return { ok: false, error: "degradePatterns 为空" };
 
 	const configuredStateFile =
 		typeof raw.stateFile === "string" && raw.stateFile.trim() ? raw.stateFile.trim() : undefined;
+
+	// maxDegradeMs 是硬上限：默认时长也钳制到它之下，保证「降级窗口不会超过配置的上限」
+	const maxDegradeMs = positiveNumber(raw.maxDegradeMs, MAX_DEGRADE_MS);
+	const defaultDegradeMs = Math.min(positiveNumber(raw.defaultDegradeMs, DEFAULT_DEGRADE_MS), maxDegradeMs);
 
 	return {
 		ok: true,
 		loaded: {
 			virtualProvider,
 			stateFile: configuredStateFile ? expandPath(configuredStateFile) : defaultStateFile(dir),
-			defaultDegradeMs: positiveNumber(raw.defaultDegradeMs, DEFAULT_DEGRADE_MS),
-			maxDegradeMs: positiveNumber(raw.maxDegradeMs, MAX_DEGRADE_MS),
+			defaultDegradeMs,
+			maxDegradeMs,
 			transcriptNotice: raw.transcriptNotice !== false,
 			patterns,
 			resetRe: compileResetPattern(typeof raw.resetPattern === "string" ? raw.resetPattern : undefined),

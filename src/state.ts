@@ -1,14 +1,14 @@
 /**
  * 降级状态文件（纯 IO 模块，无 pi 依赖）。
  *
- * - 读取带 `mtimeMs + size` 缓存；文件缺失/损坏一律视为空状态，不抛异常
+ * - 读取即解析；文件缺失/损坏一律视为空状态，不抛异常（文件仅数百字节，不做缓存，避免读到陈旧快照）
  * - 写入为 `tmp + rename` 原子替换
  * - 合并语义：同一 key 若盘上条目仍活跃且档位更深，保留盘上条目（单调前进）
  *   —— 避免父进程与子 agent 并发写时把已推进的档位回退
  * - 每次写入清理 `until + PRUNE_AFTER_MS < now` 的历史条目
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 export interface DegradeEntry {
@@ -30,8 +30,6 @@ export interface StateFile {
 /** 过期条目保留时长：超过 `until + PRUNE_AFTER_MS` 的条目在写入时被清理 */
 export const PRUNE_AFTER_MS = 24 * 60 * 60 * 1000;
 
-let stateCache: { path: string; mtimeMs: number; size: number; data: StateFile } | undefined;
-
 export function emptyState(): StateFile {
 	return { version: 1, degraded: {} };
 }
@@ -51,10 +49,6 @@ function normalizeEntry(value: unknown): DegradeEntry | undefined {
 
 export function readState(path: string): StateFile {
 	try {
-		const stat = statSync(path);
-		if (stateCache && stateCache.path === path && stateCache.mtimeMs === stat.mtimeMs && stateCache.size === stat.size) {
-			return stateCache.data;
-		}
 		const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<StateFile> | null;
 		const raw = parsed && typeof parsed.degraded === "object" && parsed.degraded ? (parsed.degraded as Record<string, unknown>) : {};
 		const degraded: Record<string, DegradeEntry> = {};
@@ -62,9 +56,7 @@ export function readState(path: string): StateFile {
 			const entry = normalizeEntry(value);
 			if (entry) degraded[key] = entry;
 		}
-		const data: StateFile = { version: 1, degraded };
-		stateCache = { path, mtimeMs: stat.mtimeMs, size: stat.size, data };
-		return data;
+		return { version: 1, degraded };
 	} catch {
 		return emptyState();
 	}
@@ -95,7 +87,6 @@ function writeState(path: string, data: StateFile): { ok: true } | { ok: false; 
 		mkdirSync(dirname(path), { recursive: true });
 		writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, "utf8");
 		renameSync(tmp, path);
-		stateCache = undefined;
 		return { ok: true };
 	} catch (err) {
 		try {
@@ -110,6 +101,10 @@ function writeState(path: string, data: StateFile): { ok: true } | { ok: false; 
 /**
  * 写入一条降级状态。
  *
+ * 读-改-写之间没有文件锁：与其它进程**同时**写入不同 key 时，极小概率丢一条记录
+ * （该 provider 下次请求会重新降级，可自愈）。这里在写盘前紧邻读取盘上快照，尽量合并
+ * 其它进程刚写入的 key；同 key 仍按「更深的活跃档位优先」单调合并。
+ *
  * 返回值里的 `entry` 是**实际生效**的条目（可能因「单调前进」而保留盘上更深的档位）；
  * `changed` 表示相对盘上是否有变化（供 UI 去重提示）；写入失败时 `writeError` 有值且不抛异常。
  */
@@ -119,7 +114,7 @@ export function upsertEntry(
 	entry: DegradeEntry,
 	now: number = Date.now(),
 ): { entry: DegradeEntry; changed: boolean; writeError?: string } {
-	const current = readState(path);
+	const current = readState(path); // 写盘前紧邻读取，缩小并发丢更新的窗口
 	const previous = current.degraded[key];
 	const merged = previous && previous.until > now && previous.level > entry.level ? previous : entry;
 	const changed = !sameEntry(previous, merged);

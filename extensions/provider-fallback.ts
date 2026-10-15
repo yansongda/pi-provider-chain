@@ -10,9 +10,10 @@
  * - 只有额度类错误才降级；429 瞬时限流 / 5xx / 网络错误不干预，交回 Pi 自身重试
  * - 降级状态写入共享文件（跨 session、跨进程、跨前后台 subagent 生效）
  * - 两条触发路径：reason === "retry" 快路径；agent_before_settle 兜底路径
- * - UI：notify + 页脚常驻状态 + 转录内可见条目（registerEntryRenderer，不进模型上下文）
+ * - UI：notify + 页脚常驻状态（多 provider 汇总）+ 转录内可见条目（registerEntryRenderer，不进模型上下文）
+ * - 恢复判定以状态文件为准（level > 0 且窗口已过期 → 主用成功即写「已恢复」墓碑），不依赖进程内状态
  *
- * 本文件只做「装配」：配置/状态/判定/决策/文案分别在 ../src/*.ts，可独立单测。
+ * 本文件只做「装配」：配置/状态/判定/决策/文案/命令解析分别在 ../src/*.ts，可独立单测。
  */
 
 import type {
@@ -21,12 +22,22 @@ import type {
 	VirtualModelDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Box, Text } from "@earendil-works/pi-tui";
+import { COMMAND_USAGE, parseCommandArgs } from "../src/command.ts";
 import { defaultConfigPath, type LoadedModel, loadConfig } from "../src/config.ts";
-import { formatClock, matchDegrade, parseDurationMs, parseResetTs } from "../src/degrade.ts";
-import { type ModelRef, parseRef, refOf, refText } from "../src/model-ref.ts";
+import { formatClock, matchDegrade, parseResetTs } from "../src/degrade.ts";
+import { type ModelRef, refOf, refText } from "../src/model-ref.ts";
 import { decideRoute, levelOfRef } from "../src/routing.ts";
 import { activeEntry, clearEntry, type DegradeEntry, readState, upsertEntry } from "../src/state.ts";
-import { commandStatusHeader, degradeNotice, describeModel, recoverNotice, statusText } from "../src/ui.ts";
+import {
+	commandStatusHeader,
+	degradeNotice,
+	describeModel,
+	ENTRY_PREFIX,
+	entryDegradeLine,
+	entryRecoverText,
+	recoverNotice,
+	statusText,
+} from "../src/ui.ts";
 
 // ---------------------------------------------------------------------------
 // 常量与类型
@@ -40,16 +51,18 @@ type ThinkingLevels = NonNullable<VirtualModelDefinition["thinkingLevels"]>;
 const ALL_THINKING_LEVELS: ThinkingLevels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 /** 转录内可见条目的数据结构（不进模型上下文）。 */
-interface RouteEntryData {
-	kind: "degrade" | "recover";
-	provider: string;
-	level: number;
-	to: string;
-	until: number;
-	code: string;
-	reason?: string;
-	errorMessage?: string;
-}
+type RouteEntryData =
+	| {
+			kind: "degrade";
+			provider: string;
+			level: number;
+			to: string;
+			until: number;
+			code: string;
+			reason: string;
+			errorMessage: string;
+		}
+	| { kind: "recover"; provider: string };
 
 // ---------------------------------------------------------------------------
 // 扩展
@@ -57,30 +70,21 @@ interface RouteEntryData {
 
 export default function (pi: ExtensionAPI) {
 	const result = loadConfig();
-	const notified = new Map<string, number>(); // provider key -> until（本进程内已提示过的降级）
 
 	// --- 转录内可见条目（不进模型上下文） ---
 	pi.registerEntryRenderer<RouteEntryData>(ENTRY_TYPE, (entry, options, theme) => {
 		const data = entry.data;
 		const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
 		if (!data) {
-			box.addChild(new Text(theme.fg("dim", "[route] (no data)"), 0, 0));
+			box.addChild(new Text(theme.fg("dim", `${ENTRY_PREFIX} (no data)`), 0, 0));
 			return box;
 		}
 		if (data.kind === "recover") {
-			box.addChild(new Text(`${theme.fg("accent", "[route]")} ${theme.fg("success", `✅ 已恢复主用 ${data.provider}`)}`, 0, 0));
+			box.addChild(new Text(`${theme.fg("accent", ENTRY_PREFIX)} ${theme.fg("success", entryRecoverText(data.provider))}`, 0, 0));
 		} else {
-			box.addChild(
-				new Text(
-					`${theme.fg("accent", "[route]")} ${theme.fg("warning", `⚠ 额度受限（${data.code}）→ 降级到 ${data.to}`)}` +
-						theme.fg("dim", `  ·  恢复 ${formatClock(data.until)}`),
-					0,
-					0,
-				),
-			);
-		}
-		if (options.expanded && data.errorMessage) {
-			box.addChild(new Text(theme.fg("dim", data.errorMessage.slice(0, 600)), 0, 0));
+			const line = entryDegradeLine(data);
+			box.addChild(new Text(`${theme.fg("accent", ENTRY_PREFIX)} ${theme.fg("warning", line.text)}${theme.fg("dim", line.dim)}`, 0, 0));
+			if (options.expanded) box.addChild(new Text(theme.fg("dim", data.errorMessage.slice(0, 600)), 0, 0));
 		}
 		return box;
 	});
@@ -91,7 +95,7 @@ export default function (pi: ExtensionAPI) {
 		pi.on("session_start", (_event, ctx) => {
 			if (ctx.hasUI) ctx.ui.notify(`[provider-fallback] 未启用：${reason}`, "error");
 		});
-		pi.registerCommand("route", {
+		pi.registerCommand("fallback", {
 			description: "虚拟模型路由（未启用：配置加载失败）",
 			handler: async (_args, ctx) => {
 				if (ctx.hasUI) ctx.ui.notify(`[provider-fallback] 未启用：${reason}`, "error");
@@ -133,6 +137,22 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
+	/** 重算页脚：把状态文件里所有活跃降级汇总成一行（多 provider 不会互相覆盖，同一备用 provider 只显示一次）。 */
+	function refreshStatus(ctx: ExtensionContext, now: number = Date.now()) {
+		const state = readState(cfg.stateFile);
+		const entries: Array<{ provider: string; until: number }> = [];
+		const seen = new Set<string>();
+		for (const model of models) {
+			const entry = state.degraded[model.key];
+			if (!entry || entry.until <= now) continue;
+			const target = model.chain[Math.min(Math.max(entry.level, 0), model.chain.length - 1)];
+			if (seen.has(target.provider)) continue;
+			seen.add(target.provider);
+			entries.push({ provider: target.provider, until: entry.until });
+		}
+		setStatus(ctx, statusText(entries));
+	}
+
 	/** 只有「模型存在且已配置凭证」才认为可用；返回的模型供 route() 直接派发。 */
 	function resolvePhysical(ctx: ExtensionContext, ref: ModelRef) {
 		try {
@@ -140,6 +160,17 @@ export default function (pi: ExtensionAPI) {
 			if (!model) return undefined;
 			if (ctx.modelRegistry.hasConfiguredAuth(model)) return model;
 			return undefined;
+		} catch {
+			return undefined;
+		}
+	}
+
+	/** 兜底回落：优先取有凭证的主用，其次取目录里的主用对象（让 Pi 报出真实错误）。 */
+	function primaryOrCatalog(ctx: ExtensionContext, ref: ModelRef) {
+		const physical = resolvePhysical(ctx, ref);
+		if (physical) return physical;
+		try {
+			return ctx.modelRegistry?.find(ref.provider, ref.id);
 		} catch {
 			return undefined;
 		}
@@ -158,8 +189,8 @@ export default function (pi: ExtensionAPI) {
 			at: Date.now(),
 		});
 		const entry = applied.entry;
-		const target = model.chain[entry.level] ?? model.chain[0];
-		const to = target ? refText(target) : refText(model.chain[0] as ModelRef);
+		const target = model.chain[Math.min(Math.max(entry.level, 0), model.chain.length - 1)];
+		const to = refText(target);
 
 		if (applied.changed) {
 			notifyUi(
@@ -167,7 +198,6 @@ export default function (pi: ExtensionAPI) {
 				degradeNotice({ key: model.key, code: entry.code, to, until: entry.until, writeFailed: !!applied.writeError }),
 				"warning",
 			);
-			setStatus(ctx, statusText(parseRef(to)?.provider ?? to, entry.until));
 			appendEntry({
 				kind: "degrade",
 				provider: model.key,
@@ -179,28 +209,40 @@ export default function (pi: ExtensionAPI) {
 				errorMessage: info.errorMessage.slice(0, 2000),
 			});
 		}
-		notified.set(model.key, entry.until);
+		refreshStatus(ctx);
 		return entry;
 	}
 
-	/** 降级窗口过期后，第一条成功的主用响应 → 提示已恢复。 */
+	/**
+	 * 降级窗口过期后，第一条成功的主用响应 → 写「已恢复」墓碑并提示。
+	 *
+	 * 以状态文件自身判定恢复（level > 0 且 until 已过期），因此父/子进程都能提示；
+	 * level = 0 的墓碑让后续成功响应不再重复提示，而并发下若他进程刚写入更深的活跃条目，
+	 * `upsertEntry` 的单调合并会保留盘上条目，不会清掉真实降级。
+	 */
 	function notePrimarySuccess(ctx: ExtensionContext, provider: string) {
-		if (!notified.has(provider)) return;
-		if (activeEntry(cfg.stateFile, provider)) return;
-		notified.delete(provider);
+		const now = Date.now();
+		const stale = readState(cfg.stateFile).degraded[provider];
+		if (!stale || stale.level <= 0 || stale.until > now) return;
+
+		upsertEntry(cfg.stateFile, provider, { level: 0, until: now, code: "recovered", at: now }, now);
 		notifyUi(ctx, recoverNotice(provider), "info");
-		setStatus(ctx, undefined);
-		appendEntry({ kind: "recover", provider, level: 0, to: provider, until: Date.now(), code: "recovered" });
+		refreshStatus(ctx, now);
+		appendEntry({ kind: "recover", provider });
 	}
 
-	/** 命中额度类错误时计算降级时长：优先解析错误里的 reset 时间，否则用默认值。 */
+	/** 命中额度类错误时计算降级时长：优先解析错误里的 reset 时间，否则用默认值；统一钳制到 maxDegradeMs。 */
 	function degradeUntil(errorText: string): number {
-		return parseResetTs(resetRe, errorText, { now: Date.now(), maxDegradeMs: cfg.maxDegradeMs }) ?? Date.now() + cfg.defaultDegradeMs;
+		const now = Date.now();
+		return (
+			parseResetTs(resetRe, errorText, { now, maxDegradeMs: cfg.maxDegradeMs }) ??
+			now + Math.min(cfg.defaultDegradeMs, cfg.maxDegradeMs)
+		);
 	}
 
 	// --- 注册虚拟模型 ---
 	for (const model of models) {
-		const primaryRef = model.chain[0] as ModelRef;
+		const primaryRef = model.chain[0];
 
 		pi.registerVirtualModel({
 			provider: cfg.virtualProvider,
@@ -217,7 +259,7 @@ export default function (pi: ExtensionAPI) {
 					// A. 额度类错误 → 推进链路（retry 快路径）
 					const errorText = request.reason === "retry" ? request.failed?.message?.errorMessage : undefined;
 					const hit = matchDegrade(patterns, errorText);
-					if (hit && errorText) {
+					if (errorText && hit) {
 						const next = Math.min(level + 1, model.chain.length - 1);
 						if (next > level) {
 							const entry = applyDegrade(ctx, model, {
@@ -251,11 +293,11 @@ export default function (pi: ExtensionAPI) {
 					}
 
 					// E. 都没有凭证：返回主用对象，让 Pi 报出真实错误
-					const primary = resolvePhysical(ctx, primaryRef) ?? ctx.modelRegistry?.find(primaryRef.provider, primaryRef.id);
+					const primary = primaryOrCatalog(ctx, primaryRef);
 					if (primary) return { model: primary, thinkingLevel: request.thinkingLevel };
 					throw new Error(`provider-fallback: ${refText(primaryRef)} 与全部 fallback 均不可用`);
 				} catch (err) {
-					const primary = resolvePhysical(ctx, primaryRef) ?? ctx.modelRegistry?.find(primaryRef.provider, primaryRef.id);
+					const primary = primaryOrCatalog(ctx, primaryRef);
 					if (primary) return { model: primary, thinkingLevel: request.thinkingLevel };
 					throw err instanceof Error ? err : new Error(String(err));
 				}
@@ -291,10 +333,7 @@ export default function (pi: ExtensionAPI) {
 		if (levelOfRef(model.chain, refOf(assistant)) !== level) return; // 失败的不是当前档位 → 不接管
 		if (level >= model.chain.length - 1) return; // 已无后备可用
 
-		const projected = (event.context?.contextEntries ?? []).find((e) => (e.messages ?? []).includes(assistant));
-		const targetId = projected?.sourceEntry?.id;
-		if (!targetId) return;
-
+		// 先写降级状态：即便找不到失败消息所在的 entry（无法续跑），下一次请求也会走备用
 		applyDegrade(ctx, model, {
 			level: Math.min(level + 1, model.chain.length - 1),
 			until: degradeUntil(assistant.errorMessage),
@@ -302,6 +341,10 @@ export default function (pi: ExtensionAPI) {
 			errorMessage: assistant.errorMessage,
 			reason: "settle",
 		});
+
+		const projected = (event.context?.contextEntries ?? []).find((e) => (e.messages ?? []).includes(assistant));
+		const targetId = projected?.sourceEntry?.id;
+		if (!targetId) return;
 
 		return {
 			entries: [...(event.entries ?? []), { type: "context_edit", targetId, replacement: null }],
@@ -314,34 +357,35 @@ export default function (pi: ExtensionAPI) {
 		const message = event.message;
 		if (!message || message.role !== "assistant") return;
 		if (message.stopReason === "error" || message.stopReason === "aborted") return;
-		if (!notified.has(message.provider)) return;
 		if (!models.some((m) => m.key === message.provider)) return;
 		notePrimarySuccess(ctx, message.provider);
 	});
 
 	// --- 会话启动：把已生效的降级状态显示到页脚 ---
 	pi.on("session_start", (_event, ctx) => {
-		for (const model of models) {
-			const entry = activeEntry(cfg.stateFile, model.key);
-			if (!entry) continue;
-			notified.set(model.key, entry.until);
-			const target = model.chain[Math.min(entry.level, model.chain.length - 1)];
-			const provider = target ? (parseRef(refText(target))?.provider ?? model.key) : model.key;
-			setStatus(ctx, statusText(provider, entry.until));
-		}
+		refreshStatus(ctx);
 	});
 
-	// --- /route 命令 ---
-	pi.registerCommand("route", {
-		description: "虚拟模型路由：/route [status | fallback [时长] | reset | reload]",
+	// --- /fallback 命令 ---
+	pi.registerCommand("fallback", {
+		description: `虚拟模型路由：${COMMAND_USAGE}`,
+		getArgumentCompletions: (prefix: string) => {
+			const items = [
+				{ value: "status", label: "status", description: "显示当前选中模型、链路与降级状态" },
+				{ value: "degrade 30m", label: "degrade [时长]", description: "手动降级到第 1 档备用（30m / 2h / 1d）" },
+				{ value: "reset", label: "reset", description: "清除当前 provider 的降级状态，下一请求尝试主用" },
+				{ value: "reload", label: "reload", description: "重新加载扩展与配置" },
+			];
+			const text = prefix.trim().toLowerCase();
+			return text ? items.filter((item) => item.value.startsWith(text)) : items;
+		},
 		handler: async (args, ctx) => {
-			const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
-			const action = (parts[0] ?? "status").toLowerCase();
+			const parsed = parseCommandArgs(args);
 			const selection = ctx.model;
 			const model = selection && selection.provider === cfg.virtualProvider ? byId.get(selection.id) : undefined;
 			const target = model ?? models[0];
 
-			if (action === "reload") {
+			if (parsed.action === "reload") {
 				notifyUi(ctx, "重新加载 provider-fallback 扩展与配置…", "info");
 				await ctx.reload();
 				return;
@@ -352,36 +396,34 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			const state = readState(cfg.stateFile);
-			const entry = state.degraded[target.key];
 			const lines: string[] = [];
 
-			if (action === "reset" || action === "primary" || action === "clear") {
+			if (parsed.action === "reset") {
 				const cleared = clearEntry(cfg.stateFile, target.key);
-				notified.delete(target.key);
-				setStatus(ctx, undefined);
+				refreshStatus(ctx);
 				lines.push(
 					cleared.ok
 						? `已清除 ${target.key} 的降级状态，下一请求尝试主用`
 						: `清除 ${target.key} 的降级状态失败：${cleared.error ?? "未知错误"}`,
 				);
-			} else if (action === "fallback" || action === "degrade") {
+			} else if (parsed.action === "degrade") {
 				if (target.chain.length < 2) {
 					lines.push(`${cfg.virtualProvider}/${target.config.id} 未配置 fallback，无法切换`);
 				} else {
-					const ms = parseDurationMs(parts[1]) ?? cfg.defaultDegradeMs;
+					const ms = Math.min(parsed.durationMs ?? cfg.defaultDegradeMs, cfg.maxDegradeMs);
 					const until = Date.now() + ms;
-					const fallbackRef = target.chain[1] as ModelRef;
+					const fallbackRef = target.chain[1];
 					applyDegrade(ctx, target, {
 						level: 1,
 						until,
 						code: "manual",
-						errorMessage: "手动 /route fallback",
+						errorMessage: "手动 /fallback degrade",
 						reason: "manual",
 					});
 					lines.push(`已手动降级 ${cfg.virtualProvider}/${target.config.id} → ${refText(fallbackRef)}，至 ${formatClock(until)}`);
 				}
 			} else {
+				const state = readState(cfg.stateFile);
 				lines.push(
 					...commandStatusHeader({
 						selection: selection ? `${selection.provider}/${selection.id}` : undefined,
@@ -389,6 +431,7 @@ export default function (pi: ExtensionAPI) {
 						stateFile: cfg.stateFile,
 					}),
 				);
+				if (parsed.unknown) lines.push(`未知子命令：${parsed.unknown}（可用：${COMMAND_USAGE}）`, "");
 				for (const m of models) {
 					lines.push(
 						...describeModel({
@@ -399,6 +442,7 @@ export default function (pi: ExtensionAPI) {
 						}),
 					);
 				}
+				const entry = state.degraded[target.key];
 				if (entry && entry.until <= Date.now()) lines.push("", "提示: 状态已过期，下一请求会自动尝试主用");
 			}
 

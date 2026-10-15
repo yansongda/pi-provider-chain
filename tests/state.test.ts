@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -105,6 +105,20 @@ test("readState：结构非法的条目被忽略，合法条目保留", () => {
 		"utf8",
 	);
 	assert.deepEqual(Object.keys(readState(path).degraded), ["good"]);
+});
+
+test("readState：同 mtime/size 的外部改写也能读到（无陈旧缓存）", () => {
+	const path = tempStatePath();
+	const before = JSON.stringify({ version: 1, degraded: { volcengine: { level: 1, until: NOW + 1, code: "aa", at: 0 } } });
+	const after = JSON.stringify({ version: 1, degraded: { volcengine: { level: 2, until: NOW + 1, code: "bb", at: 0 } } });
+	assert.equal(before.length, after.length, "两段内容需等长才能复现 mtime+size 缓存问题");
+
+	writeFileSync(path, before, "utf8");
+	assert.equal(readState(path).degraded.volcengine?.level, 1);
+	const stat = statSync(path);
+	writeFileSync(path, after, "utf8");
+	utimesSync(path, stat.atime, stat.mtime); // 强制 mtime 与首次读取时一致
+	assert.equal(readState(path).degraded.volcengine?.level, 2);
 });
 
 test("状态文件为人类可读 JSON（缩进 2 + 末尾换行）", () => {
