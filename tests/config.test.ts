@@ -1,0 +1,135 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+import { agentDir, defaultConfigPath, defaultStateFile, expandPath, loadConfig } from "../src/config.ts";
+import { DEFAULT_DEGRADE_MS, DEFAULT_RESET_PATTERN, MAX_DEGRADE_MS } from "../src/degrade.ts";
+
+function writeConfig(content: unknown): string {
+	const path = join(mkdtempSync(join(tmpdir(), "pf-config-")), "provider-fallback.json");
+	writeFileSync(path, typeof content === "string" ? content : JSON.stringify(content, null, 2), "utf8");
+	return path;
+}
+
+const MINIMAL = {
+	virtualProvider: "yansongda",
+	models: [
+		{
+			id: "deepseek-v4.1-flash",
+			name: "DeepSeek V4.1 Flash · auto",
+			primary: "volcengine/deepseek-v4.1-flash",
+			fallbacks: ["workbuddy/deepseek-v4.1-flash"],
+		},
+	],
+};
+
+test("合法最小配置：默认路径与链路解析", () => {
+	const path = writeConfig(MINIMAL);
+	const result = loadConfig(path, "/tmp/pf-agent");
+	assert.equal(result.ok, true);
+	if (!result.ok) return;
+	assert.equal(result.loaded.virtualProvider, "yansongda");
+	assert.equal(result.loaded.stateFile, join("/tmp/pf-agent", "provider-fallback-state.json"));
+	assert.deepEqual(result.loaded.models[0]?.chain, [
+		{ provider: "volcengine", id: "deepseek-v4.1-flash" },
+		{ provider: "workbuddy", id: "deepseek-v4.1-flash" },
+	]);
+	assert.equal(result.loaded.models[0]?.key, "volcengine");
+	assert.equal(result.loaded.defaultDegradeMs, DEFAULT_DEGRADE_MS);
+	assert.equal(result.loaded.maxDegradeMs, MAX_DEGRADE_MS);
+	assert.equal(result.loaded.transcriptNotice, true);
+	assert.equal(result.loaded.patterns.length > 0, true);
+	assert.equal(result.loaded.resetRe.source, DEFAULT_RESET_PATTERN);
+});
+
+test("自定义 stateFile：支持 ~ 展开", () => {
+	const path = writeConfig({ ...MINIMAL, stateFile: "~/custom/state.json" });
+	const result = loadConfig(path, "/tmp/pf-agent");
+	assert.equal(result.ok, true);
+	if (!result.ok) return;
+	assert.equal(result.loaded.stateFile, join(homedir(), "custom", "state.json"));
+});
+
+test("配置文件不存在 / 内容损坏", () => {
+	const missing = join(mkdtempSync(join(tmpdir(), "pf-config-")), "nope.json");
+	const missingResult = loadConfig(missing, "/tmp/pf-agent");
+	assert.equal(missingResult.ok, false);
+	if (!missingResult.ok) assert.ok(missingResult.error.includes("配置文件不存在"));
+
+	const broken = loadConfig(writeConfig("{ not json"), "/tmp/pf-agent");
+	assert.equal(broken.ok, false);
+	if (!broken.ok) assert.ok(broken.error.includes("配置文件解析失败"));
+});
+
+test("缺少 virtualProvider / models 为空 / primary 非法", () => {
+	const noProvider = loadConfig(writeConfig({ models: MINIMAL.models }), "/tmp/pf-agent");
+	assert.equal(noProvider.ok, false);
+	if (!noProvider.ok) assert.equal(noProvider.error, "缺少 virtualProvider");
+
+	const noModels = loadConfig(writeConfig({ virtualProvider: "yansongda", models: [] }), "/tmp/pf-agent");
+	assert.equal(noModels.ok, false);
+	if (!noModels.ok) assert.equal(noModels.error, "models[] 为空");
+
+	const badPrimary = loadConfig(
+		writeConfig({ virtualProvider: "yansongda", models: [{ id: "x", primary: "noslash" }] }),
+		"/tmp/pf-agent",
+	);
+	assert.equal(badPrimary.ok, false);
+	if (!badPrimary.ok) assert.ok(badPrimary.error.includes("models[] 条目缺少 id 或合法 primary"));
+});
+
+test("非法 fallback 被静默过滤，剩余链路仍可用", () => {
+	const path = writeConfig({
+		...MINIMAL,
+		models: [{ ...MINIMAL.models[0], fallbacks: ["noslash", "", "workbuddy/glm-5.3"] }],
+	});
+	const result = loadConfig(path, "/tmp/pf-agent");
+	assert.equal(result.ok, true);
+	if (!result.ok) return;
+	assert.equal(result.loaded.models[0]?.chain.length, 2);
+	assert.equal(result.loaded.models[0]?.chain[1]?.provider, "workbuddy");
+});
+
+test("非法数值与 resetPattern 回落默认", () => {
+	const path = writeConfig({ ...MINIMAL, defaultDegradeMs: -1, maxDegradeMs: "big", resetPattern: "(" });
+	const result = loadConfig(path, "/tmp/pf-agent");
+	assert.equal(result.ok, true);
+	if (!result.ok) return;
+	assert.equal(result.loaded.defaultDegradeMs, DEFAULT_DEGRADE_MS);
+	assert.equal(result.loaded.maxDegradeMs, MAX_DEGRADE_MS);
+	assert.equal(result.loaded.resetRe.source, DEFAULT_RESET_PATTERN);
+});
+
+test("transcriptNotice: false 生效", () => {
+	const path = writeConfig({ ...MINIMAL, transcriptNotice: false });
+	const result = loadConfig(path, "/tmp/pf-agent");
+	assert.equal(result.ok, true);
+	if (!result.ok) return;
+	assert.equal(result.loaded.transcriptNotice, false);
+});
+
+test("degradePatterns 覆盖默认值", () => {
+	const path = writeConfig({ ...MINIMAL, degradePatterns: ["custom_quota"] });
+	const result = loadConfig(path, "/tmp/pf-agent");
+	assert.equal(result.ok, true);
+	if (!result.ok) return;
+	assert.deepEqual(
+		result.loaded.patterns.map((p) => p.source),
+		["custom_quota"],
+	);
+});
+
+test("agentDir/defaultConfigPath/defaultStateFile 跟随 PI_CODING_AGENT_DIR", () => {
+	const original = process.env.PI_CODING_AGENT_DIR;
+	process.env.PI_CODING_AGENT_DIR = "/tmp/pf-agent-env";
+	try {
+		assert.equal(agentDir(), "/tmp/pf-agent-env");
+		assert.equal(defaultConfigPath(), join("/tmp/pf-agent-env", "provider-fallback.json"));
+		assert.equal(defaultStateFile(), join("/tmp/pf-agent-env", "provider-fallback-state.json"));
+	} finally {
+		if (original === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = original;
+	}
+	assert.equal(expandPath("~").length > 1, true);
+});
