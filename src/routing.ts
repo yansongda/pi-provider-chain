@@ -35,6 +35,15 @@ export function levelOfRef(chain: readonly ModelRef[], ref: string): number {
 }
 
 /**
+ * 把档位钳制到链路范围内：非整数取整，`NaN` / `±Infinity` 按 0，越界钳到 `[0, chainLength - 1]`。
+ * 状态文件可能被外部改写，链路上的每个读取点都用它兜底。
+ */
+export function clampLevel(level: number, chainLength: number): number {
+	const raw = Number.isFinite(level) ? Math.trunc(level) : 0;
+	return Math.min(Math.max(raw, 0), chainLength - 1);
+}
+
+/**
  * 决策顺序：
  * 1. `retry` 且失败的就是当前档位 → 复用（同一物理模型重试，保缓存）
  * 2. `continuation` 且上一个成功响应就是当前档位 → 沿用
@@ -46,8 +55,7 @@ export function decideRoute(input: RouteInput): RouteDecision | undefined {
 	const { chain, reason, failedRef, previousRef, isAvailable } = input;
 	if (chain.length === 0) return undefined;
 
-	const raw = Number.isFinite(input.level) ? Math.trunc(input.level) : 0;
-	const level = Math.min(Math.max(raw, 0), chain.length - 1);
+	const level = clampLevel(input.level, chain.length);
 	const current = chain[level];
 
 	if (reason === "retry") {

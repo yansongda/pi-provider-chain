@@ -8,6 +8,7 @@
 import type { LoadedModel } from "./config.ts";
 import { formatClock, formatClockShort } from "./degrade.ts";
 import { refText } from "./model-ref.ts";
+import { clampLevel } from "./routing.ts";
 import type { DegradeEntry } from "./state.ts";
 
 /** 转录内可见条目的前缀（与命令同名，便于对照）。 */
@@ -58,7 +59,7 @@ export function describeModel(input: {
 	stale?: DegradeEntry;
 }): string[] {
 	const { virtualProvider, model, active, stale } = input;
-	const level = active ? Math.min(Math.max(active.level, 0), model.chain.length - 1) : 0;
+	const level = active ? clampLevel(active.level, model.chain.length) : 0;
 	const currentRef = model.chain[level];
 	const status = active
 		? `降级 level=${active.level}（${refText(currentRef)}）`

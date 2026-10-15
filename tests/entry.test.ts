@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { afterEach, test } from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 /**
@@ -68,8 +68,21 @@ const CONFIG2 = {
 	],
 };
 
+/** `loadExtension` 会临时改写 `PI_CODING_AGENT_DIR`；每个用例结束后恢复，避免测试间环境污染。 */
+let restoreAgentDir: (() => void) | undefined;
+
+afterEach(() => {
+	restoreAgentDir?.();
+	restoreAgentDir = undefined;
+});
+
 async function loadExtension(dir: string) {
+	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 	process.env.PI_CODING_AGENT_DIR = dir;
+	restoreAgentDir = () => {
+		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+	};
 	const factory = (await import("../extensions/provider-fallback.ts")).default;
 	const captured: {
 		models: CapturedModel[];
@@ -339,6 +352,38 @@ test("/fallback degrade 与 reset：手动降级写状态，reset 清除并刷�
 	assert.equal(readDegraded(dir).degraded.volcengine, undefined);
 	assert.ok(notifications.at(-1)?.message.includes("已清除"));
 	assert.equal(status.at(-1), undefined, "reset 后页脚应清空");
+});
+
+test("/fallback degrade：盘上已有更深档位时，提示实际生效的档位与恢复时间", async () => {
+	const config = {
+		virtualProvider: "yansongda",
+		models: [
+			{
+				id: "deepseek-v4.1-flash",
+				primary: "volcengine/deepseek-v4.1-flash",
+				fallbacks: ["workbuddy/deepseek-v4.1-flash", "glm/deepseek-v4.1-flash"],
+			},
+		],
+	};
+	const activeUntil = Date.now() + 7_200_000;
+	const dir = makeAgentDir({
+		config,
+		state: { version: 1, degraded: { volcengine: { level: 2, until: activeUntil, code: "AccountQuotaExceeded", at: Date.now() } } },
+	});
+	const captured = await loadExtension(dir);
+	const { ctx, notifications } = makeCtx();
+	const command = captured.commandOptions.get("fallback");
+	assert.ok(command);
+
+	await command.handler("degrade 30m", ctx);
+
+	const output = notifications.at(-1)!.message;
+	assert.ok(output.includes("保持 level=2"), output);
+	assert.ok(output.includes("glm/deepseek-v4.1-flash"), output);
+	assert.equal(output.includes("workbuddy/deepseek-v4.1-flash"), false, "不应提示未生效的第 1 档");
+	const state = readDegraded(dir).degraded.volcengine;
+	assert.equal(state?.level, 2, "不应把档位打回 1");
+	assert.equal(state?.until, activeUntil, "不应改写恢复时间");
 });
 
 test("/fallback status：未知子命令给出提示，已知 status 输出链路", async () => {

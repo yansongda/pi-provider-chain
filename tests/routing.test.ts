@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type ModelRef, refText } from "../src/model-ref.ts";
-import { decideRoute, levelOfRef, type RouteInput } from "../src/routing.ts";
+import { clampLevel, decideRoute, levelOfRef, type RouteInput } from "../src/routing.ts";
 
 const PRIMARY: ModelRef = { provider: "volcengine", id: "deepseek-v4.1-flash" };
 const FALLBACK1: ModelRef = { provider: "workbuddy", id: "deepseek-v4.1-flash" };
@@ -66,6 +66,15 @@ test("档位越界（状态残留）被钳制，不抛错", () => {
 	assert.deepEqual(decideRoute(input({ level: 99 }))?.ref, FALLBACK2);
 	assert.deepEqual(decideRoute(input({ level: -5 }))?.ref, PRIMARY);
 	assert.deepEqual(decideRoute(input({ level: Number.NaN }))?.ref, PRIMARY);
+});
+
+test("clampLevel：非整数取整、非法值按 0、越界钳制", () => {
+	assert.equal(clampLevel(1.9, CHAIN.length), 1);
+	assert.equal(clampLevel(-5, CHAIN.length), 0);
+	assert.equal(clampLevel(99, CHAIN.length), 2);
+	assert.equal(clampLevel(Number.NaN, CHAIN.length), 0);
+	assert.equal(clampLevel(Number.POSITIVE_INFINITY, CHAIN.length), 0);
+	assert.equal(clampLevel(0, 1), 0);
 });
 
 test("空链路 → undefined", () => {

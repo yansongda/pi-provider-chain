@@ -26,7 +26,7 @@ import { COMMAND_USAGE, parseCommandArgs } from "../src/command.ts";
 import { defaultConfigPath, type LoadedModel, loadConfig } from "../src/config.ts";
 import { formatClock, matchDegrade, parseResetTs } from "../src/degrade.ts";
 import { type ModelRef, refOf, refText } from "../src/model-ref.ts";
-import { decideRoute, levelOfRef } from "../src/routing.ts";
+import { clampLevel, decideRoute, levelOfRef } from "../src/routing.ts";
 import { activeEntry, clearEntry, type DegradeEntry, readState, upsertEntry } from "../src/state.ts";
 import {
 	commandStatusHeader,
@@ -145,7 +145,7 @@ export default function (pi: ExtensionAPI) {
 		for (const model of models) {
 			const entry = state.degraded[model.key];
 			if (!entry || entry.until <= now) continue;
-			const target = model.chain[Math.min(Math.max(entry.level, 0), model.chain.length - 1)];
+			const target = model.chain[clampLevel(entry.level, model.chain.length)];
 			if (seen.has(target.provider)) continue;
 			seen.add(target.provider);
 			entries.push({ provider: target.provider, until: entry.until });
@@ -189,7 +189,7 @@ export default function (pi: ExtensionAPI) {
 			at: Date.now(),
 		});
 		const entry = applied.entry;
-		const target = model.chain[Math.min(Math.max(entry.level, 0), model.chain.length - 1)];
+		const target = model.chain[clampLevel(entry.level, model.chain.length)];
 		const to = refText(target);
 
 		if (applied.changed) {
@@ -254,7 +254,7 @@ export default function (pi: ExtensionAPI) {
 			route(request, ctx) {
 				try {
 					const state = activeEntry(cfg.stateFile, model.key);
-					let level = state ? Math.min(Math.max(state.level, 0), model.chain.length - 1) : 0;
+					let level = clampLevel(state?.level ?? 0, model.chain.length);
 
 					// A. 额度类错误 → 推进链路（retry 快路径）
 					const errorText = request.reason === "retry" ? request.failed?.message?.errorMessage : undefined;
@@ -269,7 +269,7 @@ export default function (pi: ExtensionAPI) {
 								errorMessage: errorText,
 								reason: "retry",
 							});
-							level = Math.min(Math.max(entry.level, 0), model.chain.length - 1);
+							level = clampLevel(entry.level, model.chain.length);
 						}
 					}
 
@@ -329,7 +329,7 @@ export default function (pi: ExtensionAPI) {
 		if (!hit) return;
 
 		const state = activeEntry(cfg.stateFile, model.key);
-		const level = state ? Math.min(Math.max(state.level, 0), model.chain.length - 1) : 0;
+		const level = clampLevel(state?.level ?? 0, model.chain.length);
 		if (levelOfRef(model.chain, refOf(assistant)) !== level) return; // 失败的不是当前档位 → 不接管
 		if (level >= model.chain.length - 1) return; // 已无后备可用
 
@@ -411,16 +411,20 @@ export default function (pi: ExtensionAPI) {
 					lines.push(`${cfg.virtualProvider}/${target.config.id} 未配置 fallback，无法切换`);
 				} else {
 					const ms = Math.min(parsed.durationMs ?? cfg.defaultDegradeMs, cfg.maxDegradeMs);
-					const until = Date.now() + ms;
-					const fallbackRef = target.chain[1];
-					applyDegrade(ctx, target, {
+					const applied = applyDegrade(ctx, target, {
 						level: 1,
-						until,
+						until: Date.now() + ms,
 						code: "manual",
 						errorMessage: "手动 /fallback degrade",
 						reason: "manual",
 					});
-					lines.push(`已手动降级 ${cfg.virtualProvider}/${target.config.id} → ${refText(fallbackRef)}，至 ${formatClock(until)}`);
+					// 盘上可能已有更深的活跃档位（单调合并会保留它）→ 按实际生效的档位与时间提示
+					const current = target.chain[clampLevel(applied.level, target.chain.length)];
+					lines.push(
+						applied.level > 1
+							? `已存在更深的降级档位，保持 level=${applied.level}（${refText(current)}），至 ${formatClock(applied.until)}`
+							: `已手动降级 ${cfg.virtualProvider}/${target.config.id} → ${refText(current)}，至 ${formatClock(applied.until)}`,
+					);
 				}
 			} else {
 				const state = readState(cfg.stateFile);
