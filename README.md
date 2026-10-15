@@ -50,6 +50,7 @@ pi list
 | `models[].id` | ✅ | - | 虚拟模型 id，不能与 `virtualProvider` 下物理模型 id 相同；同一配置内重复会直接报错 |
 | `models[].name` | - | `models[].id` |  `/model` 列表里显示的名字（非字符串时忽略） |
 | `models[].thinkingLevels` | - | 全部档位 | 选择时可用的思考档位（非数组或过滤后为空时回落全部档位） |
+| `models[].input` | - | 宿主默认（text + image） | 声明该虚拟模型接受的输入类型，仅 `text` / `image` 有效（其他值丢弃、去重）；不声明则不下发该字段 |
 | `models[].contextWindow` / `maxTokens` | - | 未声明 | 首个响应前展示的限值（非正数时忽略） |
 | `models[].primary` | ✅ | - | 主用物理模型，`provider/id` |
 | `models[].fallbacks[]` | - | `[]` | 备用物理模型，按顺序降级；非法项被忽略；**建议链路总长 ≤ 5**（业界网关默认上限，链过长会让一次故障在多个 provider 上依次付出失败代价） |
@@ -81,7 +82,7 @@ pi list
 {
   "version": 1,
   "degraded": {
-    "volcengine": { "level": 1, "until": 1793203199000, "code": "AccountQuotaExceeded", "at": 1792055998922 }
+    "volcengine": { "level": 1, "until": 1793203199000, "reason": "AccountQuotaExceeded", "at": 1792055998922 }
   }
 }
 ```
@@ -90,7 +91,7 @@ pi list
 - 写入采用 `tmp + rename` 原子替换；并发写按「同 key 取更大 level」单调合并（父/子进程不会互相把档位打回去）。
 - 读-改-写之间没有文件锁：两个进程**同时**降级不同 provider 时，理论上可能丢一条记录；该 provider 的下一次请求会重新降级，可自愈。
 - 每次写入会清理 `until + 24h < now` 的历史条目。
-- 恢复后会写入 `level: 0, code: "recovered"` 的「墓碑」条目：让「已恢复」提示只出现一次，且并发下不会覆盖他进程刚写入的活跃降级（单调合并保留更深的档位）。
+- 恢复后会写入 `level: 0, reason: "recovered"` 的「墓碑」条目：让「已恢复」提示只出现一次，且并发下不会覆盖他进程刚写入的活跃降级（单调合并保留更深的档位）。
 - 写入失败时降级仍在本进程生效，并通过提示告知「状态文件写入失败，本次降级仅本进程生效」。
 
 ## 工作原理
@@ -110,7 +111,7 @@ pi list
 
 不可重试的额度错误（如 403 订阅过期）由 `agent_before_settle` 兜底：命中后先写入降级状态，再剔除这条失败消息并续跑一次；若定位不到失败消息所在的 entry（无法剔除），仍会写入状态，让下一次请求走备用。
 
-页脚状态由状态文件汇总生成（多 provider 同时降级时显示 `⚠ 备用 ×N: a, b`，不会互相覆盖）；转录条目前缀为 `[fallback]`。
+页脚状态由状态文件汇总生成（多 provider 同时降级时显示 `⚠ 备用 ×N: a, b`，不会互相覆盖）；转录条目前缀为 `[fallback]`，共三种可见条目：降级（`kind: "degrade"`，含原因 `reason` 与触发路径 `trigger`）、恢复（`kind: "recover"`）、路由异常（`kind: "error"`，回落主用但把异常留在转录里便于排查）。
 
 ## 开发
 
@@ -125,14 +126,17 @@ bun run test:node # 等价 node --test "tests/**/*.test.ts"
 ```
 
 ```
-extensions/provider-fallback.ts   装配层（注册虚拟模型 / 事件 / 命令 / 渲染器）
+extensions/provider-fallback.ts   装配层（注册虚拟模型 / 事件 / 命令 / 渲染器 + ctx→端口适配）
+src/constants.ts                  机器常量 + 用户文案模板（叶子模块，零依赖）
 src/model-ref.ts                  provider/id 解析
 src/degrade.ts                    降级判定与时间解析（纯函数）
 src/state.ts                      状态文件读写（原子写 / 单调合并 / 清理）
 src/config.ts                     配置加载与校验
 src/routing.ts                    路由决策（纯函数）
+src/router.ts                     降级状态机与决策（端口注入，可单测）
+src/transcript.ts                 转录条目契约与会话遍历（纯函数）
 src/command.ts                    /fallback 参数解析（纯函数）
-src/ui.ts                         纯文本文案（notify / 页脚 / 转录条目 / 命令输出）
+src/ui.ts                         用户文案组装（notify / 页脚 / 转录条目 / 命令输出）
 examples/                         可直接复制的配置示例 + 字段说明
 tests/                            node:test 单测（含 stub pi 的装配集成测试）
 docs/                             设计文档

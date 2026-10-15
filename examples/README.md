@@ -23,6 +23,7 @@ cp examples/provider-fallback.json ~/.pi/agent/provider-fallback.json
 | `models[].id` | ✅ | `"deepseek-v4.1-flash"` | 虚拟模型 id；不能与 `virtualProvider` 下的物理模型 id 相同；同一配置内重复会直接报错 |
 | `models[].name` | - | `"DeepSeek V4.1 Flash"` | `/model` 列表显示名，缺省为 `id`（非字符串时忽略） |
 | `models[].thinkingLevels` | - | `["low","high","max"]` | 可选思考档位，缺省为全部档位（非数组或过滤后为空时回落全部档位） |
+| `models[].input` | - | `["text","image"]` | 该虚拟模型接受的输入类型，仅 `text` / `image` 有效（其他值丢弃、去重）；不声明则不下发该字段，保持宿主默认（text + image） |
 | `models[].contextWindow` / `maxTokens` | - | `1000000` / `384000` | 首个响应前的展示限值，之后以实际物理模型为准（非正数时忽略） |
 | `models[].primary` | ✅ | `"volcengine/deepseek-v4.1-flash"` | 主用物理模型，`provider/id` |
 | `models[].fallbacks[]` | - | `["workbuddy/deepseek-v4.1-flash"]` | 备用物理模型，按序降级；非法项被静默忽略；建议链路总长 ≤ 5 |
