@@ -79,8 +79,24 @@ export function defaultStateFile(dir: string = agentDir()): string {
 	return join(dir, "provider-fallback-state.json");
 }
 
+function optionalText(value: unknown): string | undefined {
+	const text = typeof value === "string" ? value.trim() : "";
+	return text || undefined;
+}
+
+function optionalPositiveNumber(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
 function positiveNumber(value: unknown, fallback: number): number {
-	return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
+	return optionalPositiveNumber(value) ?? fallback;
+}
+
+/** 归一化 `thinkingLevels`：只保留非空字符串；过滤后为空视为未声明（由装配层回落全部档位）。 */
+function normalizeThinkingLevels(value: unknown): string[] | undefined {
+	if (!Array.isArray(value)) return undefined;
+	const levels = value.map(optionalText).filter((level): level is string => !!level);
+	return levels.length > 0 ? levels : undefined;
 }
 
 export function loadConfig(path: string = defaultConfigPath(), dir: string = agentDir()): LoadResult {
@@ -98,17 +114,31 @@ export function loadConfig(path: string = defaultConfigPath(), dir: string = age
 	if (!Array.isArray(raw?.models) || raw.models.length === 0) return { ok: false, error: "models[] 为空" };
 
 	const models: LoadedModel[] = [];
+	const seenIds = new Set<string>();
 	for (const entry of raw.models as RoutingModelConfig[]) {
 		const id = typeof entry?.id === "string" ? entry.id.trim() : "";
 		const primary = parseRef(String(entry?.primary ?? ""));
 		if (!id || !primary) return { ok: false, error: `models[] 条目缺少 id 或合法 primary：${JSON.stringify(entry)}` };
+		if (seenIds.has(id)) return { ok: false, error: `models[] 存在重复 id：${id}` };
+		seenIds.add(id);
 		const chain: [ModelRef, ...ModelRef[]] = [primary];
 		// 链长建议 ≤ 5（业界网关默认上限）：链过长会让一次故障在多个 provider 上依次付出失败代价
 		for (const fb of entry?.fallbacks ?? []) {
 			const ref = parseRef(String(fb));
 			if (ref) chain.push(ref);
 		}
-		models.push({ config: { ...entry, id }, key: primary.provider, chain });
+		models.push({
+			config: {
+				...entry,
+				id,
+				name: optionalText(entry?.name),
+				thinkingLevels: normalizeThinkingLevels(entry?.thinkingLevels),
+				contextWindow: optionalPositiveNumber(entry?.contextWindow),
+				maxTokens: optionalPositiveNumber(entry?.maxTokens),
+			},
+			key: primary.provider,
+			chain,
+		});
 	}
 
 	// degradePatterns 缺省 / 为空 / 全是空白 → 使用内置默认列表；非空列表完全覆盖默认值

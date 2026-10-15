@@ -91,6 +91,37 @@ test("非法 fallback 被静默过滤，剩余链路仍可用", () => {
 	assert.equal(result.loaded.models[0]?.chain[1]?.provider, "workbuddy");
 });
 
+test("可选字段归一化：非法类型被丢弃、thinkingLevels 过滤非法项", () => {
+	const path = writeConfig({
+		...MINIMAL,
+		models: [{ ...MINIMAL.models[0], name: 123, thinkingLevels: ["low", 3, " high ", ""], contextWindow: "1000000", maxTokens: 0 }],
+	});
+	const result = loadConfig(path, "/tmp/pf-agent");
+	assert.equal(result.ok, true);
+	if (!result.ok) return;
+	const config = result.loaded.models[0]?.config;
+	assert.equal(config?.id, "deepseek-v4.1-flash");
+	assert.equal(config?.name, undefined);
+	assert.deepEqual(config?.thinkingLevels, ["low", "high"]);
+	assert.equal(config?.contextWindow, undefined);
+	assert.equal(config?.maxTokens, undefined);
+});
+
+test("thinkingLevels 非数组 → 视为未声明（由装配层回落全部档位）", () => {
+	const path = writeConfig({ ...MINIMAL, models: [{ ...MINIMAL.models[0], thinkingLevels: "low" }] });
+	const result = loadConfig(path, "/tmp/pf-agent");
+	assert.equal(result.ok, true);
+	if (!result.ok) return;
+	assert.equal(result.loaded.models[0]?.config.thinkingLevels, undefined);
+});
+
+test("models[] 重复 id → 配置报错", () => {
+	const path = writeConfig({ ...MINIMAL, models: [MINIMAL.models[0], { ...MINIMAL.models[0], primary: "openrouter/other" }] });
+	const result = loadConfig(path, "/tmp/pf-agent");
+	assert.equal(result.ok, false);
+	if (!result.ok) assert.ok(result.error.includes("重复 id"), result.error);
+});
+
 test("非法数值与 resetPattern 回落默认", () => {
 	const path = writeConfig({ ...MINIMAL, defaultDegradeMs: -1, maxDegradeMs: "big", resetPattern: "(" });
 	const result = loadConfig(path, "/tmp/pf-agent");
