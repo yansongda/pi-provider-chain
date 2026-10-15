@@ -1,0 +1,64 @@
+{
+  "virtualProvider": "yansongda",
+
+  "degradePatterns": [
+    "AccountQuotaExceeded",
+    "QuotaExceeded",
+    "AgentPlanQuotaExceeded",
+    "SetLimitExceeded",
+    "InvalidSubscription",
+    "subscription has expired",
+    "AccountOverdueError",
+    "ServiceOverdue",
+    "overdue balance",
+    "usage quota",
+    "exceeded the quota",
+    "insufficient_quota",
+    "out of budget",
+    "billing"
+  ],
+
+  "resetPattern": "reset at\\s+(\\d{4}-\\d{2}-\\d{2})[ T](\\d{2}:\\d{2}:\\d{2})(?:\\s*([+-]\\d{2}:?\\d{2}))?",
+  "defaultDegradeMs": 3600000,
+  "maxDegradeMs": 2592000000,
+  "transcriptNotice": true,
+
+  "models": [
+    {
+      "id": "deepseek-v4.1-flash",
+      "name": "DeepSeek V4.1 Flash",
+      "thinkingLevels": ["low", "high", "max"],
+      "contextWindow": 1000000,
+      "maxTokens": 384000,
+      "primary": "volcengine/deepseek-v4.1-flash",
+      "fallbacks": ["workbuddy/deepseek-v4.1-flash"]
+    },
+    {
+      "id": "deepseek-v4-flash",
+      "name": "DeepSeek V4 Flash",
+      "thinkingLevels": ["low", "high", "max"],
+      "contextWindow": 1000000,
+      "maxTokens": 384000,
+      "primary": "volcengine/deepseek-v4-flash",
+      "fallbacks": ["workbuddy/deepseek-v4.1-flash"]
+    },
+    {
+      "id": "deepseek-v4-pro",
+      "name": "DeepSeek V4 Pro",
+      "thinkingLevels": ["low", "high", "max"],
+      "contextWindow": 1000000,
+      "maxTokens": 384000,
+      "primary": "volcengine/deepseek-v4-pro",
+      "fallbacks": ["workbuddy/deepseek-v4-pro"]
+    },
+    {
+      "id": "glm-5.3",
+      "name": "GLM-5.3",
+      "thinkingLevels": ["low", "high", "max"],
+      "contextWindow": 1024000,
+      "maxTokens": 128000,
+      "primary": "volcengine/glm-5.3",
+      "fallbacks": ["workbuddy/glm-5.3"]
+    }
+  ]
+}

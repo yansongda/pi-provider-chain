@@ -29,6 +29,7 @@
   "files": [
     "extensions",
     "src",
+    "examples",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
@@ -61,6 +62,7 @@
   },
   "scripts": {
     "test": "bun test",
+    "test:node": "node --test \"tests/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "bun run test && bun run typecheck",
     "pack": "bun pm pack --dry-run"
