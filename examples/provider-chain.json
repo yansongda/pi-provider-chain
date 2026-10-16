@@ -1,28 +1,5 @@
 {
   "virtualProvider": "yansongda",
-
-  "degradePatterns": [
-    "AccountQuotaExceeded",
-    "QuotaExceeded",
-    "AgentPlanQuotaExceeded",
-    "SetLimitExceeded",
-    "InvalidSubscription",
-    "subscription has expired",
-    "AccountOverdueError",
-    "ServiceOverdue",
-    "overdue balance",
-    "usage quota",
-    "exceeded the quota",
-    "insufficient_quota",
-    "out of budget",
-    "billing"
-  ],
-
-  "resetPattern": "reset at\\s+(\\d{4}-\\d{2}-\\d{2})[ T](\\d{2}:\\d{2}:\\d{2})(?:\\s*([+-]\\d{2}:?\\d{2}))?",
-  "defaultDegradeMs": 3600000,
-  "maxDegradeMs": 2592000000,
-  "transcriptNotice": true,
-
   "models": [
     {
       "id": "deepseek-v4.1-flash",
@@ -60,5 +37,27 @@
       "maxTokens": 128000,
       "chain": ["volcengine/glm-5.3", "workbuddy/glm-5.3"]
     }
-  ]
+  ],
+
+  "degradePatterns": [
+    "AccountQuotaExceeded",
+    "QuotaExceeded",
+    "AgentPlanQuotaExceeded",
+    "SetLimitExceeded",
+    "InvalidSubscription",
+    "subscription has expired",
+    "AccountOverdueError",
+    "ServiceOverdue",
+    "overdue balance",
+    "usage quota",
+    "exceeded the quota",
+    "insufficient_quota",
+    "out of budget",
+    "billing"
+  ],
+
+  "resetPattern": "reset at\\s+(\\d{4}-\\d{2}-\\d{2})[ T](\\d{2}:\\d{2}:\\d{2})(?:\\s*([+-]\\d{2}:?\\d{2}))?",
+  "defaultDegradeMs": 3600000,
+  "maxDegradeMs": 2592000000,
+  "transcriptNotice": true
 }
