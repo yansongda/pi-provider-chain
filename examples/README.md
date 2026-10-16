@@ -39,3 +39,4 @@ cp examples/provider-chain.json ~/.pi/agent/provider-chain.json
 
 - 示例里 `deepseek-v4-flash` 的后备指向 `workbuddy/deepseek-v4.1-flash` 是**有意**的版本兜底（该 provider 没有同名模型）。
 - 示例中所有 provider / 模型 id 都是作者本机配置，请按自己的环境替换；文件中不含任何密钥（密钥在 Pi 的 `auth.json` / 环境变量里）。
+- 本文件只覆盖本扩展的配置字段。用 pi-subagents 时，子会话必须额外加载本扩展（否则继承虚拟模型的子代理会启动失败）：在 settings 里加一行 `"defaultSubagentOnlyExtensions": ["npm:pi-provider-chain"]` 即可，见仓库根目录 [README.zh-CN.md](../README.zh-CN.md#与-pi-subagents-配合) 的「与 pi-subagents 配合」。

@@ -26,7 +26,7 @@ pi install /Users/yansongda/000-Coding/pi-provider-chain
 pi list
 ```
 
-安装后配置 `~/.pi/agent/provider-chain.json`（或 `$PI_CODING_AGENT_DIR/provider-chain.json`）；完整示例见 [`examples/provider-chain.json`](examples/provider-chain.json)，字段说明见 [`examples/README.md`](examples/README.md)。改完 `/reload` 或新开 session 生效。
+安装后配置 `~/.pi/agent/provider-chain.json`（或 `$PI_CODING_AGENT_DIR/provider-chain.json`）；完整示例见 [`examples/provider-chain.json`](examples/provider-chain.json)，字段说明见 [`examples/README.md`](examples/README.md)。改完 `/reload` 或新开 session 生效。用 pi-subagents 时还需让子会话加载本扩展（一行 `npm:pi-provider-chain` 即可），见[与 pi-subagents 配合](#与-pi-subagents-配合)。
 
 ## 配置
 
@@ -64,6 +64,29 @@ pi list
 内置默认 `degradePatterns`：`AccountQuotaExceeded`、`QuotaExceeded`、`AgentPlanQuotaExceeded`、`SetLimitExceeded`、`InvalidSubscription`、`subscription has expired`、`AccountOverdueError`、`ServiceOverdue`、`overdue balance`、`usage quota`、`exceeded the quota`、`insufficient_quota`、`out of budget`、`billing`。
 
 > 纯字母/词组项会自动加词边界（`\bbilling\b`），减少误判；含 `_`、数字、驼峰的项按原样匹配。
+
+## 与 pi-subagents 配合
+
+虚拟模型是本扩展在加载时注册的。前台子代理**继承父会话扩展注册的 provider，但不继承 `pi.registerVirtualModel()` 注册的虚拟模型**，因此子代理一旦继承到虚拟模型（例如默认模型 `yansongda/s-main`），会因模型解析失败而无法启动。启动失败的报错会直接点明原因（`It inherits the providers they registered, but not virtual models registered with pi.registerVirtualModel().`）。让子会话额外加载本扩展即可：
+
+```json
+{
+  "subagents": {
+    "defaultSubagentOnlyExtensions": ["npm:pi-provider-chain"]
+  }
+}
+```
+
+写入 `~/.pi/agent/settings.json`（或 `$PI_CODING_AGENT_DIR/settings.json`）。值按 Pi 的包源解析：`npm:pi-provider-chain` 会在首次子代理启动时自动从 npm 安装到 `<agentDir>/tmp/extensions/npm/<hash>/` 并复用，**不用记路径**；也可以写扩展文件路径（绝对路径，支持 `~/`）。
+
+- **本地开发请用路径**：`npm:` 形式加载的是 npm 上的**已发布副本**，与 `pi install <本地路径>` 的工作树不是同一份，会出现父子版本漂移；此时写仓库内 `extensions/provider-chain.ts` 的绝对路径。
+- `npm:` 形式首次安装需要联网；`PI_OFFLINE=1` 会**静默跳过**该源（子会话拿不到扩展），此时请改用路径。
+- `subagents.defaultSubagentOnlyExtensions` 只给子会话**追加**加载，**不改变** ambient 扩展发现；不要改用 `subagents.defaultExtensions` —— 它一旦存在（哪怕值是 `[]`）就会关闭子会话的 ambient 扩展发现。
+- 只想影响某个 agent：在其 frontmatter 写 `subagentOnlyExtensions:`（追加、保留 ambient）或 `extensions:`（**只要出现，包括 `[]`，就关闭该子会话的 ambient 扩展发现**）。
+- `async: true` 的后台子代理默认会加载 ambient 扩展，通常无需额外配置。
+- 权威上限 `capabilityCeiling.denyExtensions` 会压掉上述全部配置。
+- 验证：发起一个继承虚拟模型的子代理；或让 agent 调用 `subagent({ action: "get", agent: "<名称>" })` 查看该 agent 生效的 `Subagent-only extensions`；`/subagents-doctor` 可看诊断。
+- 子代理与父会话共用 `provider-chain-state.json`，降级档位跨进程生效。
 
 ## 命令
 

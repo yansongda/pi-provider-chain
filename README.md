@@ -26,7 +26,7 @@ pi install /Users/yansongda/000-Coding/pi-provider-chain
 pi list
 ```
 
-After installing, configure `~/.pi/agent/provider-chain.json` (or `$PI_CODING_AGENT_DIR/provider-chain.json`); a complete example lives in [`examples/provider-chain.json`](examples/provider-chain.json) and field descriptions in [`examples/README.md`](examples/README.md). Run `/reload` or start a new session for changes to take effect.
+After installing, configure `~/.pi/agent/provider-chain.json` (or `$PI_CODING_AGENT_DIR/provider-chain.json`); a complete example lives in [`examples/provider-chain.json`](examples/provider-chain.json) and field descriptions in [`examples/README.md`](examples/README.md). Run `/reload` or start a new session for changes to take effect. With pi-subagents, the child session also has to load this extension (one `npm:pi-provider-chain` line is enough) — see [Use with pi-subagents](#use-with-pi-subagents).
 
 ## Configuration
 
@@ -64,6 +64,29 @@ The minimal working config (you only have to declare one primary model; see the 
 Built-in default `degradePatterns`: `AccountQuotaExceeded`, `QuotaExceeded`, `AgentPlanQuotaExceeded`, `SetLimitExceeded`, `InvalidSubscription`, `subscription has expired`, `AccountOverdueError`, `ServiceOverdue`, `overdue balance`, `usage quota`, `exceeded the quota`, `insufficient_quota`, `out of budget`, `billing`.
 
 > Plain words/phrases automatically get word boundaries (`\bbilling\b`) to reduce false positives; entries containing `_`, digits, or camelCase are matched verbatim.
+
+## Use with pi-subagents
+
+Virtual models are registered by this extension when it loads. A foreground child **inherits the providers the parent's extensions registered, but not virtual models registered with `pi.registerVirtualModel()`**, so a subagent that inherits a virtual model (for example the default model `yansongda/s-main`) fails to start because the model does not resolve; the error states `It inherits the providers they registered, but not virtual models registered with pi.registerVirtualModel().`. Let the child session load this extension as well:
+
+```json
+{
+  "subagents": {
+    "defaultSubagentOnlyExtensions": ["npm:pi-provider-chain"]
+  }
+}
+```
+
+Put this in `~/.pi/agent/settings.json` (or `$PI_CODING_AGENT_DIR/settings.json`). Values go through Pi's package-source resolution: `npm:pi-provider-chain` is installed from npm into `<agentDir>/tmp/extensions/npm/<hash>/` on the first child launch and reused — **no path to remember**; an extension file path (absolute, `~/` expanded) works too.
+
+- **Use a path for local development**: the `npm:` form loads the **published copy** from npm, which is not the same tree as a `pi install <local path>` working copy and leads to parent/child version drift; then use the absolute path to `extensions/provider-chain.ts` in the repository.
+- The `npm:` form needs network access for that first install; `PI_OFFLINE=1` **silently skips** the source (the child gets no extension), so use a path in that case.
+- `subagents.defaultSubagentOnlyExtensions` only **adds** loads to child sessions and does **not** change ambient extension discovery; do not use `subagents.defaultExtensions` instead, since its mere presence (even as `[]`) disables ambient discovery for children.
+- To affect a single agent, put `subagentOnlyExtensions:` (additive, keeps ambient) or `extensions:` (**present at all — including `[]` — disables ambient discovery for that child**) in its frontmatter.
+- A background (`async: true`) child loads ambient extensions by default and usually needs no extra configuration.
+- A capability ceiling with `capabilityCeiling.denyExtensions` overrides everything above.
+- Verify by launching a subagent that inherits a virtual model, or by having the agent call `subagent({ action: "get", agent: "<name>" })` to see the effective `Subagent-only extensions`; `/subagents-doctor` shows diagnostics.
+- Children share `provider-chain-state.json` with the parent session, so the degradation level applies across processes.
 
 ## Commands
 

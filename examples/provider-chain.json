@@ -4,35 +4,80 @@
     {
       "id": "deepseek-v4.1-flash",
       "name": "DeepSeek V4.1 Flash",
-      "thinkingLevels": ["low", "high", "max"],
+      "thinkingLevels": ["max"],
       "input": ["text", "image"],
       "contextWindow": 1000000,
       "maxTokens": 384000,
       "chain": ["volcengine/deepseek-v4.1-flash", "workbuddy/deepseek-v4.1-flash"]
     },
     {
-      "id": "deepseek-v4-flash",
-      "name": "DeepSeek V4 Flash",
-      "thinkingLevels": ["low", "high", "max"],
-      "input": ["text", "image"],
-      "contextWindow": 1000000,
-      "maxTokens": 384000,
-      "chain": ["volcengine/deepseek-v4-flash", "workbuddy/deepseek-v4.1-flash"]
-    },
-    {
       "id": "deepseek-v4-pro",
       "name": "DeepSeek V4 Pro",
-      "thinkingLevels": ["low", "high", "max"],
-      "input": ["text", "image"],
+      "thinkingLevels": ["max"],
+      "input": ["text"],
       "contextWindow": 1000000,
       "maxTokens": 384000,
       "chain": ["volcengine/deepseek-v4-pro", "workbuddy/deepseek-v4-pro"]
     },
     {
+      "id": "glm-5.3-flash",
+      "name": "GLM-5.3 Flash",
+      "thinkingLevels": ["max"],
+      "input": ["text", "image"],
+      "contextWindow": 1000000,
+      "maxTokens": 384000,
+      "chain": ["volcengine/glm-5.3-flash", "workbuddy/glm-5.3-flash"]
+    },
+    {
       "id": "glm-5.3",
       "name": "GLM-5.3",
-      "thinkingLevels": ["low", "high", "max"],
+      "thinkingLevels": ["max"],
+      "input": ["text"],
+      "contextWindow": 1000000,
+      "maxTokens": 384000,
+      "chain": ["volcengine/glm-5.3", "workbuddy/glm-5.3"]
+    },
+    {
+      "id": "s-main",
+      "name": "主力",
+      "thinkingLevels": ["max"],
       "input": ["text", "image"],
+      "contextWindow": 1000000,
+      "maxTokens": 384000,
+      "chain": ["volcengine/deepseek-v4.1-flash", "workbuddy/deepseek-v4.1-flash"]
+    },
+    {
+      "id": "s-explore",
+      "name": "代码探索与调研",
+      "thinkingLevels": ["high"],
+      "input": ["text"],
+      "contextWindow": 1000000,
+      "maxTokens": 384000,
+      "chain": ["volcengine/deepseek-v4-flash", "workbuddy/deepseek-v4.1-flash"]
+    },
+    {
+      "id": "s-worker-low",
+      "name": "打工人",
+      "thinkingLevels": ["max"],
+      "input": ["text"],
+      "contextWindow": 1000000,
+      "maxTokens": 384000,
+      "chain": ["volcengine/deepseek-v4-flash", "workbuddy/deepseek-v4.1-flash"]
+    },
+    {
+      "id": "s-worker-high",
+      "name": "高级打工人",
+      "thinkingLevels": ["max"],
+      "input": ["text"],
+      "contextWindow": 1000000,
+      "maxTokens": 384000,
+      "chain": ["volcengine/deepseek-v4-pro", "workbuddy/deepseek-v4-pro"]
+    },
+    {
+      "id": "s-oracle",
+      "name": "推理达人",
+      "thinkingLevels": ["max"],
+      "input": ["text"],
       "contextWindow": 1024000,
       "maxTokens": 128000,
       "chain": ["volcengine/glm-5.3", "workbuddy/glm-5.3"]
