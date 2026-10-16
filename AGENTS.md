@@ -24,6 +24,7 @@ src/router.ts                 策略唯一归属地：档位推进 / 路由决�
 src/state.ts                  状态文件读写：tmp+rename 原子写、单调合并、剪枝（纯 IO）
 src/config.ts                 配置加载与校验（纯函数 + 只读 IO）
 src/transcript.ts             转录条目契约 + agent_before_settle 兜底路径的两步纯查询
+src/command.ts                /chain 参数解析（action 归一化 + 时长，纯函数）
 src/ui.ts                     用户文案组装（选模板 + 汇总/截断），字面文案全部来自 constants.ts
 tests/*.test.ts               node:test 单测；entry.test.ts 是唯一 stub pi 的装配级集成测试
 examples/                     可直接用的配置示例 + 字段速查（字段语义权威处之一）
