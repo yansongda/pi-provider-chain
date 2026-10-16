@@ -1,6 +1,6 @@
 ---
 name: release
-description: pi-provider-chain 本仓库发版流程（发版 / release / publish / bump version / 打 tag / npm 发布 / 建 GitHub Release）。含版本建议、按代码真实 diff 生成改动清单与 CHANGELOG、README 版本同步、CI 等价本地验收、PR 创建、人工合并后打 tag、tag 触发 release.yml 以 OIDC 发布到 npm、发布后复用 Step 2 的 diff 清单生成 Release notes 并创建 GitHub Release、发布核验与异常回滚；含「首次发布（npm 上包尚不存在，OIDC 不可用）」特例。
+description: pi-provider-chain 本仓库发版流程（发版 / release / publish / bump version / 打 tag / npm 发布 / 建 GitHub Release）。含版本建议、按代码真实 diff 生成改动清单与 CHANGELOG、README 双语维护（约定不带版本号，发版不改 README）、CI 等价本地验收、PR 创建、人工合并后打 tag、tag 触发 release.yml 以 OIDC 发布到 npm、发布后复用 Step 2 的 diff 清单生成 Release notes 并创建 GitHub Release、发布核验与异常回滚；含「首次发布（npm 上包尚不存在，OIDC 不可用）」特例。
 ---
 
 # Release：pi-provider-chain
@@ -112,7 +112,7 @@ graph TD
 # 无 tag（首次发版）时 BASE 取根提交
 BASE=$(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD)
 git diff "$BASE"..HEAD --stat
-git diff "$BASE"..HEAD -- src/ extensions/ tests/ examples/ package.json README.md CHANGELOG.md
+git diff "$BASE"..HEAD -- src/ extensions/ tests/ examples/ package.json README.md README.zh-CN.md CHANGELOG.md
 ```
 
 **语义化版本规则：**
@@ -148,7 +148,7 @@ BASE=$(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=
 git diff "$BASE"..HEAD --stat                                 # 全貌
 git diff "$BASE"..HEAD -- src/ extensions/                    # 代码：功能与行为变化
 git diff "$BASE"..HEAD -- tests/                              # 测试：行为契约的旁证
-git diff "$BASE"..HEAD -- examples/ README.md package.json    # 对外契约与用法
+git diff "$BASE"..HEAD -- examples/ README.md README.zh-CN.md package.json    # 对外契约与用法
 ```
 
 按模块角色逐块精读（不同文件影响小节归属与版本档位）：
@@ -163,7 +163,7 @@ git diff "$BASE"..HEAD -- examples/ README.md package.json    # 对外契约与�
 | `src/state.ts`、`src/degrade.ts` | 状态读写/合并/清理、降级判定与时间解析 | 修复 / 工程 |
 | `src/ui.ts`、`src/transcript.ts` | notify / 页脚 / 转录条目等面向用户的呈现 | 功能 / 变更 |
 | `tests/` | 新增或改写的断言 = 行为契约变化的旁证（区分「纯重构」与「行为变化」的关键） | 旁证 |
-| `examples/`、`README.md` | 示例配置与文档口径变化 | 变更 / 工程 |
+| `examples/`、`README.md`、`README.zh-CN.md` | 示例配置与文档口径变化（**双语需同步改**） | 变更 / 工程 |
 
 **双向核对（做完再动笔）：**
 
@@ -222,7 +222,7 @@ git grep -n "<旧版本>" -- .     # 兜底：找出所有残留引用
 
 1. `package.json` → `version`（**决定 npm 发布版本与 CI 的 tag 校验**）
 2. `CHANGELOG.md` → 新增 `## <NEW> - <YYYY-MM-DD>` 段落（按 2.1 / 2.2 生成）
-3. `README.md` → 「安装」小节的 `pi install npm:pi-provider-chain@<NEW>`
+3. `README.md` / `README.zh-CN.md` → **不写版本号**（约定：安装小节固定 `pi install npm:pi-provider-chain`），发版时不改 README；若发现残留 `@X.Y.Z` 直接删掉
 4. `git grep` 兜底结果里其余需要跟版本走的位置（历史设计文档 `docs/*.md` 属历史记录，**不改**）
 
 ### Step 3：本地四道验收（CI 等价，全绿才继续）
@@ -235,7 +235,7 @@ bun run test:node               # Node ≥ 22.18 直跑 TS（CI 用 Node 24 守�
 bun run pack                    # bun pm pack --dry-run：检查 files 白名单
 ```
 
-`bun run pack` 的产物清单必须与 `package.json` 的 `files` 一致：应包含 `extensions/provider-chain.ts`（`pi.extensions` 入口）、`src/`、`examples/`、README、CHANGELOG、LICENSE；不应包含 `tests/`、`docs/`。
+`bun run pack` 的产物清单必须与 `package.json` 的 `files` 一致：应包含 `extensions/provider-chain.ts`（`pi.extensions` 入口）、`src/`、`examples/`、`README.md`（+ `README.zh-CN.md`）、CHANGELOG、LICENSE；不应包含 `tests/`、`docs/`。
 
 **任何一道失败都不许继续**，修好后从 Step 3 重跑。
 
@@ -243,7 +243,7 @@ bun run pack                    # bun pm pack --dry-run：检查 files 白名单
 
 ```bash
 git checkout -b release/vX.Y.Z
-git add package.json CHANGELOG.md README.md
+git add package.json CHANGELOG.md     # README 不带版本号，发版不涉及
 git commit -m "chore(release): vX.Y.Z"     # 仓库风格：conventional 前缀 + 中文正文
 git push origin release/vX.Y.Z            # 需要用户当次 push 授权
 gh pr create --base main --title "chore(release): vX.Y.Z" --body "## 发版 vX.Y.Z
@@ -420,7 +420,7 @@ git remote prune origin
 3. **随后 2 天内**让下一版走 `tag → CI` 流程（Step 1→Step 11），既验证发布链路，也避免 Trusted Publisher 配置过期。
 4. 首发版本（如 `0.1.0`）建议**不打 git tag、不建 GitHub Release**：npm 是分发渠道，首个 GitHub Release 从下一版（`0.1.1`/`0.2.0`）由 CI + skill 建立，历史更干净。
    如确需给首发版本建 Release：复用 Step 2 的 diff 清单生成 notes（首发没有前序 tag 不影响这一步，清单已覆盖全部改动），再 `gh release create v0.1.0 --title v0.1.0 --notes-file <notes>`（它会在远端创建 tag；若因此触发一次 publish 失败的 run，属预期噪声——该版本已由本地发布，CI 再发必然 403）。
-5. 首发也要做 Step 9 的核验，并确认 README「安装」小节的 `pi install npm:pi-provider-chain@X.Y.Z` 与实际发布版本一致。
+5. 首发也要做 Step 9 的核验，并确认两份 README 未写入版本号（安装小节保持 `pi install npm:pi-provider-chain`）。
 
 ## Anti-Patterns & Rationalizations
 
@@ -457,7 +457,7 @@ git remote prune origin
 | 前置检查 | `git status --short`、`npm view pi-provider-chain version`、`git describe --tags` | 无需 |
 | 版本建议 | `git diff $(git describe --tags --abbrev=0)..HEAD` | 需用户确认版本 |
 | diff→清单 | 逐模块 `git diff BASE..HEAD -- <路径>` + 双向核对，清单落 `docs/evidence/`（Step 10 复用） | 无需 |
-| 版本同步 | 按清单写 `CHANGELOG.md` 段落；`package.json` / `README.md` / `git grep <旧版本>` | 无需 |
+| 版本同步 | 按清单写 `CHANGELOG.md` 段落；`package.json` / `git grep <旧版本>`（README 不带版本号，不同步） | 无需 |
 | 验收 | `bun run typecheck && bun run test && bun run test:node && bun run pack` | 无需 |
 | PR | `chore(release): vX.Y.Z` → `gh pr create --base main` | push 分支需授权；合并永远人工 |
 | tag | 合并后 `git tag -a vX.Y.Z` + `git show` 核对 | 无需（本地） |
@@ -473,6 +473,6 @@ git remote prune origin
 - `package.json`（`version`、`files`、`pi.extensions`、`prepublishOnly`）
 - `CHANGELOG.md`（版本段落与 Release notes 同源：都由真实 diff 生成并互相交叉校验；条目格式取样见 0.1.0）
 - `docs/evidence/`（gitignored：Step 2 的改动清单与 Step 10 的 notes 草稿落盘处，不入库）
-- `README.md`：不记录发版步骤（「发布」小节已移除），发版口径以本 skill 与 `release.yml` 为准。
+- `README.md` / `README.zh-CN.md`：双语 README（英文 `README.md` 为默认，中文 `README.zh-CN.md`，顶部互相链接）；**不记录发版步骤、不写版本号**，发版口径以本 skill 与 `release.yml` 为准。
 
 <!-- 本 skill 位于仓库内 .agents/skills/release/，pi 从仓库根递归发现；编辑后用 /reload 生效。 -->

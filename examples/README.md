@@ -33,7 +33,7 @@ cp examples/provider-chain.json ~/.pi/agent/provider-chain.json
 | `transcriptNotice` | - | `true` | 是否在转录里追加可见条目（前缀 `[chain]`，**不进模型上下文**） |
 | `stateFile` | - | 未出现（默认 `~/.pi/agent/provider-chain-state.json`） | 跨进程共享的降级状态文件路径，支持 `~` |
 
-完整字段语义与默认值见仓库根目录 [README.md](../README.md#配置)。
+完整字段语义与默认值见仓库根目录 [README.zh-CN.md](../README.zh-CN.md#配置)（英文版见 [README.md](../README.md#configuration)）。
 
 ## 说明
 
