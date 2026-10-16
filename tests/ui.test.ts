@@ -1,20 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { LoadedModel } from "../src/config.ts";
-import { ENTRY_PREFIX } from "../src/constants.ts";
+import { DEGRADE_TRIGGER, ENTRY_PREFIX } from "../src/constants.ts";
 import { formatClock } from "../src/degrade.ts";
 import type { DegradeEntry } from "../src/state.ts";
 import {
 	commandStatusHeader,
-	degradeNotice,
+	degradeLine,
 	deeperLevelKeptLine,
 	describeModel,
-	entryDegradeLine,
 	entryErrorDetail,
 	entryErrorText,
 	entryNoDataText,
 	entryRecoverText,
-	manualDegradeLine,
 	recoverNotice,
 	footerActive,
 	footerDegraded,
@@ -34,13 +32,30 @@ const MODEL: LoadedModel = {
 const ACTIVE: DegradeEntry = { level: 1, until: UNTIL, reason: "AccountQuotaExceeded", at: UNTIL - 3_600_000 };
 const STALE: DegradeEntry = { level: 1, until: UNTIL - 86_400_000, reason: "AccountQuotaExceeded", at: UNTIL - 90_000_000 };
 
-test("degradeNotice：正常与写失败两种文案", () => {
+test("degradeLine：notify 与转录条目共用同一句，writeFailed 才追加说明", () => {
+	const shared = `⚠ volcengine 额度受限（AccountQuotaExceeded）→ 已切换 workbuddy/deepseek-v4.1-flash，恢复时间 ${formatClock(UNTIL)}`;
 	assert.equal(
-		degradeNotice({ provider: "volcengine", reason: "AccountQuotaExceeded", to: "workbuddy/deepseek-v4.1-flash", until: UNTIL, writeFailed: false }),
-		`⚠ volcengine 额度受限（AccountQuotaExceeded）→ 已切换 workbuddy/deepseek-v4.1-flash，恢复时间 ${formatClock(UNTIL)}`,
+		degradeLine({ provider: "volcengine", reason: "AccountQuotaExceeded", to: "workbuddy/deepseek-v4.1-flash", until: UNTIL }),
+		shared,
+		"不传 writeFailed = 转录条目文案",
 	);
-	const failed = degradeNotice({ provider: "volcengine", reason: "quota", to: "workbuddy/x", until: UNTIL, writeFailed: true });
+	assert.equal(
+		degradeLine({ provider: "volcengine", reason: "AccountQuotaExceeded", to: "workbuddy/deepseek-v4.1-flash", until: UNTIL, writeFailed: false }),
+		shared,
+		"显式 false 与 notify 逐字一致",
+	);
+	const failed = degradeLine({ provider: "volcengine", reason: "quota", to: "workbuddy/x", until: UNTIL, writeFailed: true });
 	assert.ok(failed.includes("仅本进程生效"));
+
+	// 手动降级（/chain degrade）：不再套用「额度受限（manual）」，换用专用句子
+	const manual = degradeLine({ trigger: DEGRADE_TRIGGER.MANUAL, provider: "volcengine", reason: "manual", to: "workbuddy/x", until: UNTIL });
+	assert.equal(manual, `⚠ 手动降级 volcengine → workbuddy/x，恢复时间 ${formatClock(UNTIL)}`);
+	assert.equal(manual.includes("额度受限"), false);
+	assert.ok(
+		degradeLine({ trigger: DEGRADE_TRIGGER.MANUAL, provider: "volcengine", reason: "manual", to: "workbuddy/x", until: UNTIL, writeFailed: true }).includes(
+			"仅本进程生效",
+		),
+	);
 });
 
 test("footer：常驻目标模型与降级恢复时间", () => {
@@ -51,12 +66,14 @@ test("footer：常驻目标模型与降级恢复时间", () => {
 	);
 });
 
-test("entry 文案：降级行/恢复行/前缀", () => {
+test("entry 文案：受限 provider 打头，恢复行与前缀不变", () => {
 	assert.equal(ENTRY_PREFIX, "[chain]");
-	assert.deepEqual(entryDegradeLine({ reason: "AccountQuotaExceeded", to: "workbuddy/deepseek-v4.1-flash", until: UNTIL }), {
-		text: "⚠ 额度受限（AccountQuotaExceeded）→ 降级到 workbuddy/deepseek-v4.1-flash",
-		dim: `  ·  恢复 ${formatClock(UNTIL)}`,
-	});
+	assert.ok(
+		degradeLine({ provider: "workbuddy", reason: "AccountQuotaExceeded", to: "glm/x", until: UNTIL }).startsWith(
+			"⚠ workbuddy 额度受限（AccountQuotaExceeded）",
+		),
+		"档位 ≥ 1 时条目显示的必须是受限的那个 provider",
+	);
 	assert.equal(entryRecoverText("volcengine"), "✅ 已恢复主用 volcengine");
 });
 
@@ -67,14 +84,15 @@ test("entry 文案：无数据 / 路由异常与错误截断", () => {
 	assert.equal(entryErrorDetail("short"), "short");
 });
 
-test("manualDegradeLine / deeperLevelKeptLine：手动降级两种文案", () => {
-	assert.equal(
-		manualDegradeLine({ model: "yansongda/deepseek-v4.1-flash", to: "workbuddy/deepseek-v4.1-flash", until: UNTIL }),
-		`已手动降级 yansongda/deepseek-v4.1-flash → workbuddy/deepseek-v4.1-flash，至 ${formatClock(UNTIL)}`,
-	);
+test("deeperLevelKeptLine：状态未变化的回显（一条覆盖 level ≥ 1）", () => {
 	assert.equal(
 		deeperLevelKeptLine({ level: 2, to: "glm/deepseek-v4.1-flash", until: UNTIL }),
-		`已存在更深的降级档位，保持 level=2（glm/deepseek-v4.1-flash），至 ${formatClock(UNTIL)}`,
+		`已存在降级档位，保持 level=2（glm/deepseek-v4.1-flash），至 ${formatClock(UNTIL)}`,
+	);
+	assert.equal(
+		deeperLevelKeptLine({ level: 1, to: "workbuddy/deepseek-v4.1-flash", until: UNTIL }),
+		`已存在降级档位，保持 level=1（workbuddy/deepseek-v4.1-flash），至 ${formatClock(UNTIL)}`,
+		"盘上已有完全相同条目时也走这条（不再有「更深的」措辞）",
 	);
 });
 
@@ -123,7 +141,8 @@ test("commandStatusHeader：含配置与状态文件路径", () => {
 
 test("ui 模块只做格式化：输出不含 undefined/NaN", () => {
 	const text = [
-		degradeNotice({ provider: "k", reason: "c", to: "t", until: UNTIL, writeFailed: false }),
+		degradeLine({ provider: "k", reason: "c", to: "t", until: UNTIL, writeFailed: false }),
+		degradeLine({ trigger: DEGRADE_TRIGGER.MANUAL, provider: "k", reason: "manual", to: "t", until: UNTIL }),
 		footerActive("t"),
 		footerDegraded({ target: "t", until: UNTIL }),
 		recoverNotice("p"),
@@ -131,9 +150,8 @@ test("ui 模块只做格式化：输出不含 undefined/NaN", () => {
 		entryNoDataText(),
 		entryErrorText(),
 		entryErrorDetail("x"),
-		manualDegradeLine({ model: "m", to: "t", until: UNTIL }),
 		deeperLevelKeptLine({ level: 2, to: "t", until: UNTIL }),
-		...Object.values(entryDegradeLine({ reason: "c", to: "t", until: UNTIL })),
+		degradeLine({ provider: "k", reason: "c", to: "t", until: UNTIL }),
 		...describeModel({ virtualProvider: "v", model: MODEL, active: ACTIVE }),
 		...commandStatusHeader({ configPath: "c", stateFile: "s" }),
 	].join("\n");

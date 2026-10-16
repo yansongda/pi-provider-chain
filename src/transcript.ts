@@ -14,6 +14,8 @@ export type RouteEntryData =
 			kind: typeof ENTRY_KIND.DEGRADE;
 			/** 状态键 = 链路主用 provider */
 			provider: string;
+			/** 受限的 provider（触发本次降级的失败模型所属 provider）；旧条目缺省时渲染回落 `provider` */
+			from?: string;
 			level: number;
 			/** 降级到的物理模型 `provider/id` */
 			to: string;

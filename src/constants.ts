@@ -135,8 +135,12 @@ export const MESSAGES = {
 	commandDescriptionDisabled: "虚拟模型路由（未启用：配置加载失败）",
 
 	// --- 运行时：降级 / 恢复 ---
-	quotaLimited: (p: { provider: string; reason: string; to: string; untilText: string; writeFailed: boolean }) =>
+	/** 降级文案：notify 与转录条目共用同一句（`writeFailed` 仅 notify 传，追加「仅本进程生效」说明）。 */
+	quotaLimited: (p: { provider: string; reason: string; to: string; untilText: string; writeFailed?: boolean }) =>
 		`⚠ ${p.provider} 额度受限（${p.reason}）→ 已切换 ${p.to}，恢复时间 ${p.untilText}${p.writeFailed ? WRITE_FAILED_SUFFIX : ""}`,
+	/** 手动降级文案（`/chain degrade`）：同样被 notify 与转录条目共用；没有「受限原因」可述，故不套用上面那句。 */
+	manualDegradeNotice: (p: { provider: string; to: string; untilText: string; writeFailed?: boolean }) =>
+		`⚠ 手动降级 ${p.provider} → ${p.to}，恢复时间 ${p.untilText}${p.writeFailed ? WRITE_FAILED_SUFFIX : ""}`,
 	recovered: (provider: string) => `✅ ${provider} 已恢复，后续请求回到主用`,
 	/** 路由异常（已回落主用）的转录条目文案。 */
 	routeError: "⚠ 路由异常（已回落主用）",
@@ -144,8 +148,6 @@ export const MESSAGES = {
 	unavailable: (primaryRef: string) => `${ERROR_PREFIX} ${primaryRef} 与全部后备链路均不可用`,
 
 	// --- 转录条目 ---
-	entryDegrade: (p: { reason: string; to: string }) => `⚠ 额度受限（${p.reason}）→ 降级到 ${p.to}`,
-	entryDegradeDim: (untilText: string) => `  ·  恢复 ${untilText}`,
 	entryRecover: (provider: string) => `✅ 已恢复主用 ${provider}`,
 	entryNoData: `${ENTRY_PREFIX} (no data)`,
 
@@ -172,9 +174,9 @@ export const MESSAGES = {
 	reloading: `重新加载 ${EXTENSION_NAME} 扩展与配置…`,
 	noVirtualModel: "配置中没有可用的虚拟模型",
 	noSpareChain: (model: string) => `${model} 未配置后备链路，无法切换`,
-	manualDegraded: (p: { model: string; to: string; untilText: string }) => `已手动降级 ${p.model} → ${p.to}，至 ${p.untilText}`,
+	/** `/chain degrade`：状态未变化（盘上已有同等/更深档位）时的回显；状态已变化时回显为空（反馈由降级通知承担）。 */
 	deeperLevelKept: (p: { level: number; to: string; untilText: string }) =>
-		`已存在更深的降级档位，保持 level=${p.level}（${p.to}），至 ${p.untilText}`,
+		`已存在降级档位，保持 level=${p.level}（${p.to}），至 ${p.untilText}`,
 	cleared: (provider: string) => `已清除 ${provider} 的降级状态，下一请求尝试主用`,
 	clearFailed: (provider: string, error: string) => `清除 ${provider} 的降级状态失败：${error}`,
 	unknownError: "未知错误",

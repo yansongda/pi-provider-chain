@@ -7,35 +7,40 @@
  */
 
 import type { LoadedModel } from "./config.ts";
-import { MAX_ERROR_DISPLAY_CHARS, MESSAGES } from "./constants.ts";
+import { DEGRADE_TRIGGER, MAX_ERROR_DISPLAY_CHARS, MESSAGES, type DegradeTrigger } from "./constants.ts";
 import { formatClock } from "./degrade.ts";
 import { refText } from "./model-ref.ts";
 import { clampLevel } from "./route-policy.ts";
 import type { DegradeEntry } from "./state.ts";
 
-/** 降级提示（notify / 转录条目共用口径）。 */
-export function degradeNotice(input: {
+/**
+ * 降级文案：notify 与转录条目**共用同一个出口**，按触发路径选模板 ——
+ * `manual`（`/chain degrade`）→「手动降级」，其余 →「额度受限」（`writeFailed` 仅 notify 需要，可选）。
+ */
+export function degradeLine(input: {
+	trigger?: DegradeTrigger;
 	provider: string;
 	reason: string;
 	to: string;
 	until: number;
-	writeFailed: boolean;
+	writeFailed?: boolean;
 }): string {
+	const untilText = formatClock(input.until);
+	if (input.trigger === DEGRADE_TRIGGER.MANUAL) {
+		return MESSAGES.manualDegradeNotice({
+			provider: input.provider,
+			to: input.to,
+			untilText,
+			writeFailed: input.writeFailed,
+		});
+	}
 	return MESSAGES.quotaLimited({
 		provider: input.provider,
 		reason: input.reason,
 		to: input.to,
-		untilText: formatClock(input.until),
+		untilText,
 		writeFailed: input.writeFailed,
 	});
-}
-
-/** 转录条目：降级行，`text` 为主文案、`dim` 为次要的恢复时间。 */
-export function entryDegradeLine(input: { reason: string; to: string; until: number }): { text: string; dim: string } {
-	return {
-		text: MESSAGES.entryDegrade(input),
-		dim: MESSAGES.entryDegradeDim(formatClock(input.until)),
-	};
 }
 
 /** 转录条目：恢复行。 */
@@ -58,12 +63,7 @@ export function entryErrorDetail(message: string): string {
 	return message.slice(0, MAX_ERROR_DISPLAY_CHARS);
 }
 
-/** `/chain degrade`：手动降级成功行。 */
-export function manualDegradeLine(input: { model: string; to: string; until: number }): string {
-	return MESSAGES.manualDegraded({ model: input.model, to: input.to, untilText: formatClock(input.until) });
-}
-
-/** `/chain degrade`：盘上已有更深档位时的提示行。 */
+/** `/chain degrade`：状态未变化时的回显行（盘上已有同等/更深档位）。 */
 export function deeperLevelKeptLine(input: { level: number; to: string; until: number }): string {
 	return MESSAGES.deeperLevelKept({ level: input.level, to: input.to, untilText: formatClock(input.until) });
 }

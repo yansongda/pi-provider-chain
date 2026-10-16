@@ -263,6 +263,11 @@ test("agent_before_settle：额度错误 → 写降级状态、剔除失败消�
 	assert.equal(state.degraded.volcengine?.reason, "InvalidSubscription");
 	assert.equal(notifications.length, 1);
 	assert.ok(notifications[0]!.message.includes("workbuddy/deepseek-v4.1-flash"));
+	assert.ok(notifications[0]!.message.startsWith("⚠ volcengine 额度受限"));
+	const entry = captured.entries.at(-1) as { kind?: string; from?: string; provider?: string } | undefined;
+	assert.equal(entry?.kind, "degrade");
+	assert.equal(entry?.from, "volcengine", "settle 路径的受限 provider 取自失败消息");
+	assert.equal(entry?.provider, "volcengine", "状态键不变");
 });
 
 test("agent_before_settle：非额度错误不接管", async () => {
@@ -353,7 +358,11 @@ test("/chain degrade 与 reset：手动降级写状态，reset 清除并刷新�
 	assert.ok(command);
 
 	await command.handler("degrade 30m", ctx);
-	assert.ok(notifications.at(-1)?.message.includes("已手动降级"));
+	assert.equal(notifications.length, 1, "一次手动降级只提示一条：状态已变化 → 命令不再重复回显");
+	assert.ok(
+		notifications.at(-1)?.message.startsWith("⚠ 手动降级 volcengine →"),
+		"降级 notify 走手动文案，不再是「额度受限（manual）」",
+	);
 	const state = readDegraded(dir);
 	assert.equal(state.degraded.volcengine?.level, 1);
 	assert.equal(state.degraded.volcengine?.reason, "manual");

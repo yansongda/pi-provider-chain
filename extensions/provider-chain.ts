@@ -25,7 +25,7 @@ import { refOf, refText, type ModelRef } from "../src/model-ref.ts";
 import { createRouter, type RouterPorts } from "../src/router.ts";
 import { clearEntry, readState, upsertEntry } from "../src/state.ts";
 import { findFailingAssistant, locateEntryIdFor, type RouteEntryData } from "../src/transcript.ts";
-import { entryDegradeLine, entryErrorDetail, entryErrorText, entryNoDataText, entryRecoverText } from "../src/ui.ts";
+import { degradeLine, entryErrorDetail, entryErrorText, entryNoDataText, entryRecoverText } from "../src/ui.ts";
 
 // --- 类型别名（宿主注册表 / 思考档位） ---
 type ThinkingLevels = NonNullable<VirtualModelDefinition["thinkingLevels"]>;
@@ -52,9 +52,15 @@ export default function (pi: ExtensionAPI) {
 			box.addChild(new Text(`${prefix} ${theme.fg(THEME_COLOR.WARNING, entryErrorText())}`, 0, 0));
 			if (options.expanded) box.addChild(new Text(theme.fg(THEME_COLOR.DIM, entryErrorDetail(data.message)), 0, 0));
 		} else {
-			const line = entryDegradeLine(data);
-			const text = `${prefix} ${theme.fg(THEME_COLOR.WARNING, line.text)}${theme.fg(THEME_COLOR.DIM, line.dim)}`;
-			box.addChild(new Text(text, 0, 0));
+			// 旧条目没有 `from`（受限 provider）→ 回落状态键，历史会话也能渲染；文案与 notify 同一句
+			const line = degradeLine({
+				trigger: data.trigger,
+				provider: data.from ?? data.provider,
+				reason: data.reason,
+				to: data.to,
+				until: data.until,
+			});
+			box.addChild(new Text(`${prefix} ${theme.fg(THEME_COLOR.WARNING, line)}`, 0, 0));
 			if (options.expanded) box.addChild(new Text(theme.fg(THEME_COLOR.DIM, entryErrorDetail(data.errorMessage)), 0, 0));
 		}
 		return box;
@@ -253,7 +259,9 @@ export default function (pi: ExtensionAPI) {
 								target,
 								unknown: parsed.unknown,
 							});
-			notifyUi(ctx, lines.join("\n"), NOTIFY_KIND.INFO);
+			// 手动降级的成功反馈由降级通知承担 → 回显可能为空，不弹空提示（status 的空行分隔不受影响）
+			const text = lines.join("\n");
+			if (text.trim()) notifyUi(ctx, text, NOTIFY_KIND.INFO);
 		},
 	});
 }

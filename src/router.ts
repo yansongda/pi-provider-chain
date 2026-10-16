@@ -32,12 +32,11 @@ import type { DegradeEntry, StateFile } from "./state.ts";
 import type { RouteEntryData } from "./transcript.ts";
 import {
 	commandStatusHeader,
-	degradeNotice,
+	degradeLine,
 	describeModel,
 	deeperLevelKeptLine,
 	footerActive,
 	footerDegraded,
-	manualDegradeLine,
 	recoverNotice,
 } from "./ui.ts";
 
@@ -99,7 +98,7 @@ export interface Router<M extends PhysicalModel, TLevel extends string> {
 	refreshStatus(): void;
 	/** `/chain status` 的完整输出行（头部 + 各模型 + 过期提示）。 */
 	statusLines(input: { selection?: string; target: LoadedModel; unknown?: string }): string[];
-	/** 手动降级到第 1 档，返回给用户的一行结果。 */
+	/** 手动降级到第 1 档；返回回显行（状态已变化时为空串，反馈由降级通知承担）。 */
 	manualDegrade(model: LoadedModel, durationMs?: number): string;
 	/** 清除降级状态，返回给用户的一行结果。 */
 	reset(model: LoadedModel): string;
@@ -147,11 +146,11 @@ export function createRouter<M extends PhysicalModel, TLevel extends string>(
 		);
 	}
 
-	/** 写入降级状态；仅在状态变化时做 UI 提示（幂等）。 */
+	/** 写入降级状态；仅在状态变化时做 UI 提示（幂等）。`from` 为受限方 provider（notify 与转录条目共用）。 */
 	function applyDegrade(
 		model: LoadedModel,
-		info: { level: number; until: number; reason: string; errorMessage: string; trigger: DegradeTrigger },
-	): DegradeEntry {
+		info: { from: string; level: number; until: number; reason: string; errorMessage: string; trigger: DegradeTrigger },
+	): { entry: DegradeEntry; changed: boolean } {
 		const applied = ports.upsert(model.stateKey, {
 			level: info.level,
 			until: info.until,
@@ -163,8 +162,9 @@ export function createRouter<M extends PhysicalModel, TLevel extends string>(
 
 		if (applied.changed) {
 			ports.notify(
-				degradeNotice({
-					provider: model.stateKey,
+				degradeLine({
+					trigger: info.trigger,
+					provider: info.from,
 					reason: entry.reason,
 					to,
 					until: entry.until,
@@ -175,6 +175,7 @@ export function createRouter<M extends PhysicalModel, TLevel extends string>(
 			ports.append({
 				kind: ENTRY_KIND.DEGRADE,
 				provider: model.stateKey,
+				from: info.from,
 				level: entry.level,
 				to,
 				until: entry.until,
@@ -184,7 +185,7 @@ export function createRouter<M extends PhysicalModel, TLevel extends string>(
 			});
 		}
 		refreshStatus();
-		return entry;
+		return { entry, changed: applied.changed };
 	}
 
 	function reviewFailure(model: LoadedModel, failure: FailureInfo, snapshot?: StateSnapshot): DegradeEntry | undefined {
@@ -202,12 +203,14 @@ export function createRouter<M extends PhysicalModel, TLevel extends string>(
 		if (next <= level) return undefined; // 已无后备可用
 
 		return applyDegrade(model, {
+			// 受限的是失败模型所属 provider：档位 ≥ 1 时它不是状态键，必须按失败模型反查
+			from: model.chain[failedLevel]?.provider ?? model.stateKey,
 			level: next,
 			until: degradeUntil(failure.errorText, now),
 			reason: hit.source,
 			errorMessage: failure.errorText,
 			trigger: failure.trigger,
-		});
+		}).entry;
 	}
 
 	function route(model: LoadedModel, request: RouteRequest<TLevel>): RouteResult<M, TLevel> {
@@ -324,18 +327,20 @@ export function createRouter<M extends PhysicalModel, TLevel extends string>(
 		if (model.chain.length < 2) return MESSAGES.noSpareChain(ref);
 
 		const ms = clampDegradeMs(durationMs ?? cfg.defaultDegradeMs, cfg.maxDegradeMs);
-		const applied = applyDegrade(model, {
+		const { entry, changed } = applyDegrade(model, {
+			// 手动降级只有 level 0 → 1：受限方即状态键所属 provider
+			from: model.stateKey,
 			level: 1,
 			until: ports.now() + ms,
 			reason: DEGRADE_REASON.MANUAL,
 			errorMessage: MANUAL_DEGRADE_NOTE,
 			trigger: DEGRADE_TRIGGER.MANUAL,
 		});
-		// 盘上可能已有更深的活跃档位（单调合并会保留它）→ 按实际生效的档位与时间提示
-		const current = model.chain[clampLevel(applied.level, model.chain.length)];
-		return applied.level > 1
-			? deeperLevelKeptLine({ level: applied.level, to: refText(current), until: applied.until })
-			: manualDegradeLine({ model: ref, to: refText(current), until: applied.until });
+		// 状态真的变了 → ⚠ 通知 + 转录条目已把结果说清，命令不再重复回显
+		if (changed) return "";
+		// 没变化 = 盘上已有同等/更深的活跃档位（单调合并保留它）→ 如实回显实际生效的档位与时间
+		const current = model.chain[clampLevel(entry.level, model.chain.length)];
+		return deeperLevelKeptLine({ level: entry.level, to: refText(current), until: entry.until });
 	}
 
 	function reset(model: LoadedModel): string {

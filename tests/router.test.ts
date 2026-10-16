@@ -175,6 +175,8 @@ test("retry 命中额度错误：推进档位 + 写状态 + notify/转录/页脚
 	assert.equal(entry?.kind, ENTRY_KIND.DEGRADE);
 	if (entry?.kind !== ENTRY_KIND.DEGRADE) return;
 	assert.equal(entry.trigger, DEGRADE_TRIGGER.RETRY);
+	assert.equal(entry.from, "volcengine", "受限 provider = 失败模型所属 provider");
+	assert.ok(h.notifications[0]?.message.startsWith("⚠ volcengine 额度受限"), "notify 与条目同一句、同一个受限 provider");
 	assert.equal(h.statuses.at(-1)?.includes("备用 workbuddy"), true, "页脚显示备用 provider");
 	assert.equal(h.calls.reads, 2, "route 读一次状态 + refreshStatus 读一次（推进复用同一快照）");
 });
@@ -364,11 +366,10 @@ test("状态文件写入失败：提示里带上「仅本进程生效」，但�
 	assert.equal(h.entries.length, 1, "转录条目照常写入");
 });
 
-test("manualDegrade：写入 level=1 / reason=manual，并提示实际生效档位", () => {
+test("manualDegrade：写入 level=1 / reason=manual，回显留给降级通知", () => {
 	const h = makeHarness();
 	const line = h.router.manualDegrade(h.models[0]!, 1_800_000);
-	assert.ok(line.includes("已手动降级 yansongda/main"), line);
-	assert.ok(line.includes("workbuddy/deepseek-v4.1-flash"), line);
+	assert.equal(line, "", "状态已变化 → 不再重复回显（⚠ 通知已说明）");
 	assert.equal(h.state.degraded.volcengine?.level, 1);
 	assert.equal(h.state.degraded.volcengine?.reason, DEGRADE_REASON.MANUAL);
 	assert.equal(h.state.degraded.volcengine?.until, NOW + 1_800_000);
@@ -376,6 +377,12 @@ test("manualDegrade：写入 level=1 / reason=manual，并提示实际生效档�
 	assert.equal(entry?.kind, ENTRY_KIND.DEGRADE);
 	if (entry?.kind !== ENTRY_KIND.DEGRADE) return;
 	assert.equal(entry.trigger, DEGRADE_TRIGGER.MANUAL);
+	assert.equal(entry.from, "volcengine", "手动降级的受限方 = 状态键所属 provider");
+	assert.equal(
+		h.notifications.at(-1)?.message.startsWith("⚠ 手动降级 volcengine → workbuddy/deepseek-v4.1-flash，恢复时间"),
+		true,
+		"notify 走手动文案，不再出现「额度受限（manual）」",
+	);
 });
 
 test("manualDegrade：未配置后备链路时只返回提示，不写状态", () => {
@@ -396,6 +403,17 @@ test("manualDegrade：盘上已有更深的活跃档位 → 保持它并如实�
 	assert.ok(line.includes("glm/a"), line);
 	assert.equal(h.state.degraded.volcengine?.level, 2);
 	assert.equal(h.state.degraded.volcengine?.until, activeUntil, "不覆盖盘上更深的档位与恢复时间");
+});
+
+test("manualDegrade：盘上已有完全相同条目 → 回显实际档位（不再静默）", () => {
+	const h = makeHarness();
+	assert.equal(h.router.manualDegrade(h.models[0]!, 1_800_000), "", "首次执行：状态变化 → 无回显");
+	const again = h.router.manualDegrade(h.models[0]!, 1_800_000);
+	assert.ok(again.includes("已存在降级档位"), again);
+	assert.ok(again.includes("保持 level=1"), again);
+	assert.ok(again.includes("workbuddy/deepseek-v4.1-flash"), again);
+	assert.equal(h.notifications.length, 1, "未变化 → 不重复发降级通知");
+	assert.equal(h.entries.length, 1, "未变化 → 不重复写转录条目");
 });
 
 test("reset：清除状态 + 刷新页脚；不存在也视为成功", () => {
@@ -481,4 +499,11 @@ test("S5④回归：失败来自当前档位 → 推进到下一档", () => {
 	});
 	assert.equal(result.model.provider, "glm");
 	assert.equal(h.state.degraded.volcengine?.level, 2);
+	// 受限的是 workbuddy（档位 1），不是状态键 volcengine → notify 与转录条目都必须说对
+	const entry = h.entries.at(-1);
+	assert.equal(entry?.kind, ENTRY_KIND.DEGRADE);
+	if (entry?.kind !== ENTRY_KIND.DEGRADE) return;
+	assert.equal(entry.from, "workbuddy");
+	assert.equal(entry.provider, "volcengine", "状态键仍是 chain[0] 的 provider");
+	assert.ok(h.notifications.at(-1)?.message.startsWith("⚠ workbuddy 额度受限"));
 });
