@@ -1,6 +1,6 @@
 {
   "name": "pi-provider-chain",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Pi 扩展：虚拟模型 + 链路（chain）路由 + 额度耗尽自动降级（quota / subscription / overdue 类错误自动切到后备链路）",
   "type": "module",
   "license": "MIT",
