@@ -124,7 +124,28 @@ export function createRouter<M extends PhysicalModel, TLevel extends string>(
 	}
 
 	/**
-	 * 重算页脚：常驻显示**当前选中模型**的目标物理模型；该模型降级中则显示备用目标与恢复时间。
+	 * 链路内仍活跃的降级条目里**恢复最早**的那一条（并列时取链路靠前者）。
+	 *
+	 * 为什么按链路范围而不是本模型的 `stateKey`：`stateKey` 是 `chain[0].provider`，链路里其它成员只有在
+	 * 「它也是别的虚拟模型的 `chain[0]`」时才会有条目；页脚要回答「链路上谁先恢复」，因此取全链路最早。
+	 */
+	function earliestRecovery(
+		model: LoadedModel,
+		state: StateFile,
+		now: number,
+	): { provider: string; until: number } | undefined {
+		let best: { provider: string; until: number } | undefined;
+		for (const ref of model.chain) {
+			const entry = state.degraded[ref.provider];
+			if (!entry || entry.until <= now) continue;
+			if (!best || entry.until < best.until) best = { provider: ref.provider, until: entry.until };
+		}
+		return best;
+	}
+
+	/**
+	 * 重算页脚：常驻显示**当前选中模型**的目标物理模型。
+	 * 档位 0 → `→ <chain[0]>`；档位 ≥ 1 → `↓ <chain[level]>` 并追加「最早恢复时间 + 该时间所属 provider」。
 	 * 选中非本扩展管理的模型时清空页脚（其它模型的降级由 `/chain status` 全量展示）。
 	 */
 	function refreshStatus(now: number = ports.now()): void {
@@ -137,11 +158,12 @@ export function createRouter<M extends PhysicalModel, TLevel extends string>(
 			ports.setStatus(undefined);
 			return;
 		}
-		const entry = ports.readState().degraded[model.stateKey];
-		const level = entry && entry.until > now ? clampLevel(entry.level, model.chain.length) : 0;
+		const state = ports.readState();
+		const level = activeLevel(model, state, now);
+		const recovery = earliestRecovery(model, state, now);
 		ports.setStatus(
-			entry && level > 0
-				? footerDegraded({ target: refText(model.chain[level]), until: entry.until })
+			level > 0 && recovery
+				? footerDegraded({ target: refText(model.chain[level]), provider: recovery.provider, until: recovery.until })
 				: footerActive(refText(model.chain[0])),
 		);
 	}

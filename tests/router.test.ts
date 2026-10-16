@@ -177,7 +177,7 @@ test("retry 命中额度错误：推进档位 + 写状态 + notify/转录/页脚
 	assert.equal(entry.trigger, DEGRADE_TRIGGER.RETRY);
 	assert.equal(entry.from, "volcengine", "受限 provider = 失败模型所属 provider");
 	assert.ok(h.notifications[0]?.message.startsWith("⚠ volcengine 额度受限"), "notify 与条目同一句、同一个受限 provider");
-	assert.equal(h.statuses.at(-1)?.includes("备用 workbuddy"), true, "页脚显示备用 provider");
+	assert.equal(h.statuses.at(-1)?.startsWith("↓ workbuddy/deepseek-v4.1-flash · "), true, "页脚显示降级后的目标 provider");
 	assert.equal(h.calls.reads, 2, "route 读一次状态 + refreshStatus 读一次（推进复用同一快照）");
 });
 
@@ -239,17 +239,50 @@ test("端口自身故障：回落主用并留一条 error 转录条目", () => {
 	assert.ok(entry.message.includes("state port down"));
 });
 
-test("refreshStatus：常驻显示选中模型的目标；降级时给出备用目标与恢复时间", () => {
+test("refreshStatus：档位 0 显示 → 目标；降级显示 ↓ 目标 + 恢复时间与 provider", () => {
 	const active = makeHarness();
 	active.router.refreshStatus();
-	assert.equal(active.statuses.at(-1), "⬇ volcengine/deepseek-v4.1-flash");
+	assert.equal(active.statuses.at(-1), "→ volcengine/deepseek-v4.1-flash", "用链路第一个 provider → 右箭头");
 
 	const degraded = makeHarness({
 		state: { volcengine: { level: 1, until: NOW + 3_600_000, reason: "q", at: NOW } },
 	});
 	degraded.router.refreshStatus();
 	const text = degraded.statuses.at(-1) ?? "";
-	assert.ok(text.startsWith("⚠ 备用 workbuddy/deepseek-v4.1-flash · 恢复 "), text);
+	assert.ok(text.startsWith("↓ workbuddy/deepseek-v4.1-flash · "), text);
+	assert.ok(text.endsWith(" 恢复 volcengine"), text);
+});
+
+test("refreshStatus：链路内多条活跃条目 → 取最早恢复的那条并点名其 provider", () => {
+	// workbuddy 同时是另一个模型的 chain[0]，所以它也能有自己的窗口；期望取 min(until)，而不是本模型自己的条目
+	const h = makeHarness({
+		models: [
+			{ id: "main", chain: ["volcengine/a", "workbuddy/b", "glm/c"] },
+			{ id: "other", chain: ["workbuddy/b", "glm/c"] },
+		],
+		state: {
+			volcengine: { level: 2, until: NOW + 7_200_000, reason: "q", at: NOW },
+			workbuddy: { level: 1, until: NOW + 3_600_000, reason: "q", at: NOW },
+		},
+	});
+	h.router.refreshStatus();
+	const text = h.statuses.at(-1) ?? "";
+	assert.ok(text.startsWith("↓ glm/c · "), text);
+	assert.ok(text.endsWith(" 恢复 workbuddy"), "取最早的 workbuddy，而不是本模型的 volcengine");
+
+	// 并列时取链路靠前者
+	const tie = makeHarness({
+		models: [
+			{ id: "main", chain: ["volcengine/a", "workbuddy/b", "glm/c"] },
+			{ id: "other", chain: ["workbuddy/b", "glm/c"] },
+		],
+		state: {
+			volcengine: { level: 2, until: NOW + 3_600_000, reason: "q", at: NOW },
+			workbuddy: { level: 1, until: NOW + 3_600_000, reason: "q", at: NOW },
+		},
+	});
+	tie.router.refreshStatus();
+	assert.ok((tie.statuses.at(-1) ?? "").endsWith(" 恢复 volcengine"), tie.statuses.at(-1));
 });
 
 test("refreshStatus：选中非本扩展模型（物理模型 / 未配置 id）时清空页脚", () => {
@@ -277,11 +310,12 @@ test("refreshStatus：其它模型的降级不影响当前选中模型的页脚"
 		state: { openrouter: { level: 1, until: NOW + 3_600_000, reason: "q", at: NOW } },
 	});
 	h.router.refreshStatus();
-	assert.equal(h.statuses.at(-1), "⬇ volcengine/a", "只反映当前选中模型（a）的档位");
+	assert.equal(h.statuses.at(-1), "→ volcengine/a", "只反映当前选中模型（a）的档位");
 
 	h.setSelection({ provider: "yansongda", id: "b" });
 	h.router.refreshStatus();
-	assert.ok((h.statuses.at(-1) ?? "").startsWith("⚠ 备用 glm/b · 恢复 "), h.statuses.at(-1));
+	assert.ok((h.statuses.at(-1) ?? "").startsWith("↓ glm/b · "), h.statuses.at(-1));
+	assert.ok((h.statuses.at(-1) ?? "").endsWith(" 恢复 openrouter"), h.statuses.at(-1));
 });
 
 test("refreshStatus：每次调用只读一次状态", () => {
@@ -300,7 +334,7 @@ test("notePrimarySuccess：过期降级后的首次主用成功 → 墓碑 + 提
 	assert.equal(h.notifications.length, 1);
 	assert.equal(h.notifications[0]?.kind, NOTIFY_KIND.INFO);
 	assert.ok(h.notifications[0]?.message.includes("已恢复"));
-	assert.equal(h.statuses.at(-1), "⬇ volcengine/deepseek-v4.1-flash", "页脚回到主用目标");
+	assert.equal(h.statuses.at(-1), "→ volcengine/deepseek-v4.1-flash", "页脚回到主用目标");
 	assert.equal(h.entries.at(-1)?.kind, ENTRY_KIND.RECOVER);
 
 	h.router.notePrimarySuccess("volcengine");
@@ -420,7 +454,7 @@ test("reset：清除状态 + 刷新页脚；不存在也视为成功", () => {
 	const h = makeHarness({ state: { volcengine: { level: 1, until: NOW + 3_600_000, reason: "q", at: NOW } } });
 	assert.ok(h.router.reset(h.models[0]!).includes("已清除 volcengine"));
 	assert.equal(h.state.degraded.volcengine, undefined);
-	assert.equal(h.statuses.at(-1), "⬇ volcengine/deepseek-v4.1-flash", "页脚回到主用目标");
+	assert.equal(h.statuses.at(-1), "→ volcengine/deepseek-v4.1-flash", "页脚回到主用目标");
 	assert.ok(h.router.reset(h.models[0]!).includes("已清除 volcengine"));
 });
 

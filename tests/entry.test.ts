@@ -337,7 +337,7 @@ test("message_end：过期降级后的首次主用成功 → 提示恢复、写�
 	assert.ok(notifications[0]!.message.includes("已恢复"));
 	assert.equal(readDegraded(dir).degraded.volcengine?.level, 0, "应写入 level=0 墓碑");
 	assert.equal(readDegraded(dir).degraded.volcengine?.reason, "recovered");
-	assert.equal(status.at(-1), "⬇ volcengine/deepseek-v4.1-flash", "页脚回到主用目标");
+	assert.equal(status.at(-1), "→ volcengine/deepseek-v4.1-flash", "页脚回到主用目标");
 
 	messageEnd?.({ message: success }, ctx);
 	assert.equal(notifications.length, 1, "墓碑存在时不应重复提示");
@@ -366,12 +366,12 @@ test("/chain degrade 与 reset：手动降级写状态，reset 清除并刷新�
 	const state = readDegraded(dir);
 	assert.equal(state.degraded.volcengine?.level, 1);
 	assert.equal(state.degraded.volcengine?.reason, "manual");
-	assert.ok(status.at(-1)?.includes("workbuddy"), "页脚应显示备用 provider");
+	assert.ok(status.at(-1)?.startsWith("↓ workbuddy"), "页脚应显示降级后的目标 provider");
 
 	await command.handler("reset", ctx);
 	assert.equal(readDegraded(dir).degraded.volcengine, undefined);
 	assert.ok(notifications.at(-1)?.message.includes("已清除"));
-	assert.equal(status.at(-1), "⬇ volcengine/deepseek-v4.1-flash", "reset 后页脚回到主用目标");
+	assert.equal(status.at(-1), "→ volcengine/deepseek-v4.1-flash", "reset 后页脚回到主用目标");
 });
 
 test("/chain degrade：盘上已有更深档位时，提示实际生效的档位与恢复时间", async () => {
@@ -435,12 +435,14 @@ test("session_start：页脚只反映当前选中模型的降级（不再汇总�
 	const { ctx, status } = makeCtx();
 	ctx.model = { provider: "yansongda", id: "a" };
 	captured.handlers.get("session_start")?.({ type: "session_start" }, ctx);
-	assert.ok(status.at(-1)?.startsWith("⚠ 备用 workbuddy/a · 恢复 "), status.at(-1));
+	assert.ok(status.at(-1)?.startsWith("↓ workbuddy/a · "), status.at(-1));
+	assert.ok(status.at(-1)?.endsWith(" 恢复 volcengine"), status.at(-1));
 
-	// 切到模型 b：页脚跟随选中模型，显示 b 所在链路的备用目标
+	// 切到模型 b：页脚跟随选中模型，显示 b 所在链路的目标与最早恢复时间
 	ctx.model = { provider: "yansongda", id: "b" };
 	captured.handlers.get("model_select")?.({ type: "model_select" }, ctx);
-	assert.ok(status.at(-1)?.startsWith("⚠ 备用 glm/b · 恢复 "), status.at(-1));
+	assert.ok(status.at(-1)?.startsWith("↓ glm/b · "), status.at(-1));
+	assert.ok(status.at(-1)?.endsWith(" 恢复 openrouter"), status.at(-1));
 });
 
 test("页脚去重：同一文案不重复调用 setStatus", async () => {
@@ -449,7 +451,7 @@ test("页脚去重：同一文案不重复调用 setStatus", async () => {
 	const { ctx, status } = makeCtx();
 
 	captured.handlers.get("session_start")?.({ type: "session_start" }, ctx);
-	assert.equal(status.at(-1), "⬇ volcengine/deepseek-v4.1-flash");
+	assert.equal(status.at(-1), "→ volcengine/deepseek-v4.1-flash");
 	const count = status.length;
 
 	captured.handlers.get("model_select")?.({ type: "model_select" }, ctx);
@@ -460,7 +462,7 @@ test("页脚去重：同一文案不重复调用 setStatus", async () => {
 	assert.equal(status.length, count, "文案未变不重复写页脚");
 });
 
-test("message_end：成功响应后刷新页脚（选中模型降级中 → 备用与恢复时间）", async () => {
+test("message_end：成功响应后刷新页脚（选中模型降级中 → 目标与最早恢复时间）", async () => {
 	const dir = makeAgentDir({
 		config: CONFIG,
 		state: { version: 1, degraded: { volcengine: { level: 1, until: Date.now() + 3_600_000, reason: "q", at: Date.now() } } },
@@ -478,5 +480,6 @@ test("message_end：成功响应后刷新页脚（选中模型降级中 → 备�
 		{ message: { role: "assistant", provider: "volcengine", model: "deepseek-v4.1-flash", stopReason: "endTurn" } },
 		ctx,
 	);
-	assert.ok(status.at(-1)?.startsWith("⚠ 备用 workbuddy/deepseek-v4.1-flash · 恢复 "), status.at(-1));
+	assert.ok(status.at(-1)?.startsWith("↓ workbuddy/deepseek-v4.1-flash · "), status.at(-1));
+	assert.ok(status.at(-1)?.endsWith(" 恢复 volcengine"), status.at(-1));
 });

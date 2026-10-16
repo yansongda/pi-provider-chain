@@ -152,8 +152,15 @@ export const MESSAGES = {
 	entryNoData: `${ENTRY_PREFIX} (no data)`,
 
 	// --- 页脚（常驻显示当前选中模型的目标物理模型） ---
-	footerActive: (target: string) => `⬇ ${target}`,
-	footerDegraded: (p: { target: string; untilText: string }) => `⚠ 备用 ${p.target} · 恢复 ${p.untilText}`,
+	/** 档位 0：正在用链路第一个 provider（`→`）。 */
+	footerActive: (target: string) => `→ ${target}`,
+	/**
+	 * 降级中（档位 ≥ 1）：`↓ <当前目标> · <最早恢复时间> 恢复 <该时间所属 provider>`。
+	 * 时间与 `provider` 由 router 的 `earliestRecovery` 给出（链路内活跃条目里最早者）；页脚不再用 `⚠`，
+	 * 警示语义保留在 notify 与转录条目（那里是「事件」）。
+	 */
+	footerDegraded: (p: { target: string; provider: string; untilText: string }) =>
+		`↓ ${p.target} · ${p.untilText} 恢复 ${p.provider}`,
 
 	// --- /chain status ---
 	headerCurrent: (ref: string) => `当前: ${ref}`,

@@ -58,11 +58,11 @@ test("degradeLine：notify 与转录条目共用同一句，writeFailed 才追�
 	);
 });
 
-test("footer：常驻目标模型与降级恢复时间", () => {
-	assert.equal(footerActive("volcengine/deepseek-v4.1-flash"), "⬇ volcengine/deepseek-v4.1-flash");
+test("footer：第一个 provider 用 →，降级用 ↓ 并给出最早恢复时间与 provider", () => {
+	assert.equal(footerActive("volcengine/deepseek-v4.1-flash"), "→ volcengine/deepseek-v4.1-flash");
 	assert.equal(
-		footerDegraded({ target: "workbuddy/deepseek-v4.1-flash", until: UNTIL }),
-		`⚠ 备用 workbuddy/deepseek-v4.1-flash · 恢复 ${formatClock(UNTIL, "short")}`,
+		footerDegraded({ target: "workbuddy/deepseek-v4.1-flash", provider: "volcengine", until: UNTIL }),
+		`↓ workbuddy/deepseek-v4.1-flash · ${formatClock(UNTIL, "short")} 恢复 volcengine`,
 	);
 });
 
@@ -144,7 +144,7 @@ test("ui 模块只做格式化：输出不含 undefined/NaN", () => {
 		degradeLine({ provider: "k", reason: "c", to: "t", until: UNTIL, writeFailed: false }),
 		degradeLine({ trigger: DEGRADE_TRIGGER.MANUAL, provider: "k", reason: "manual", to: "t", until: UNTIL }),
 		footerActive("t"),
-		footerDegraded({ target: "t", until: UNTIL }),
+		footerDegraded({ target: "t", provider: "k", until: UNTIL }),
 		recoverNotice("p"),
 		entryRecoverText("p"),
 		entryNoDataText(),

@@ -70,17 +70,22 @@ export function deeperLevelKeptLine(input: { level: number; to: string; until: n
 
 /**
  * 页脚（常驻显示当前选中模型的目标物理模型）：
- * - 未降级 → `⬇ <目标>`
- * - 已降级 → `⚠ 备用 <目标> · 恢复 MM-DD HH:mm`
+ * - 档位 0（正在用链路第一个 provider）→ `→ <目标>`
+ * - 档位 ≥ 1 → `↓ <目标> · MM-DD HH:mm 恢复 <provider>`
  *
- * 只描述**当前选中模型**（其它模型的降级信息由 `/chain status` 全量展示）。
+ * `provider` 是那个恢复时间所属的一方，由调用方算好（router 取链路内最早恢复的活跃条目，
+ * 因此它不一定是当前档位所属 provider）。只描述**当前选中模型**（其它模型的降级信息由 `/chain status` 全量展示）。
  */
 export function footerActive(target: string): string {
 	return MESSAGES.footerActive(target);
 }
 
-export function footerDegraded(input: { target: string; until: number }): string {
-	return MESSAGES.footerDegraded({ target: input.target, untilText: formatClock(input.until, "short") });
+export function footerDegraded(input: { target: string; provider: string; until: number }): string {
+	return MESSAGES.footerDegraded({
+		target: input.target,
+		provider: input.provider,
+		untilText: formatClock(input.until, "short"),
+	});
 }
 
 /** 恢复提示。 */
