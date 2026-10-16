@@ -162,7 +162,7 @@ src/command.ts                    /chain argument parsing (pure functions)
 src/ui.ts                         User-facing message assembly (notify / footer / transcript entries / command output)
 examples/                         Copy-pasteable config example + field descriptions
 tests/                            node:test unit tests (incl. an assembly integration test with a stubbed pi)
-docs/                             Design documents
+docs/                             Architecture and design documents (docs/README.md is the index)
 ```
 
 ## License

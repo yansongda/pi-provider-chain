@@ -27,7 +27,10 @@ src/transcript.ts             转录条目契约 + agent_before_settle 兜底路
 src/ui.ts                     用户文案组装（选模板 + 汇总/截断），字面文案全部来自 constants.ts
 tests/*.test.ts               node:test 单测；entry.test.ts 是唯一 stub pi 的装配级集成测试
 examples/                     可直接用的配置示例 + 字段速查（字段语义权威处之一）
-docs/YYYY-MM-DD-*.md          技术设计文档（历史决策与背景）
+docs/README.md                 文档索引与维护约定（单一权威来源、目录约定）
+docs/architecture.md           当前状态文档：架构、数据流、模块职责、状态文件/宿主/配置契约
+                                              （结构或契约变化时更新）
+docs/YYYY-MM-DD-*.md           日期化设计记录（落盘后视为历史快照，不再随代码修改）
 .agents/skills/release/       发版 skill（版本建议、diff 清单、tag 与 npm 发布核验）
 ```
 
@@ -114,7 +117,7 @@ CI（`.github/workflows/ci.yml`）：`bun install --frozen-lockfile` → `typech
 
 - README 双语必须同步：`README.md`（英文，默认）/ `README.zh-CN.md`（中文），顶部互相链接。**发版不改 README**，README 只按功能变更维护且不带版本号。
 - 配置字段语义的权威处是 README 字段表 + `examples/README.md` 字段速查 + `examples/provider-chain.json` 示例值；改字段、默认值或用户可见文案时三处同步。
-- 新的设计决策写进 `docs/YYYY-MM-DD-<plan-name>.md`（技术设计文档），不要把长背景堆进 `AGENTS.md` 或 README。
+- 文档分工与维护约定见 [`docs/README.md`](docs/README.md)：用户字段语义只在 README/examples，架构与契约在 `docs/architecture.md`（变化时同步更新），新的设计决策写进 `docs/YYYY-MM-DD-<plan-name>.md` 作为历史快照。
 - CHANGELOG 与版本号由发版流程统一处理（`.agents/skills/release/SKILL.md`，按真实代码 diff 生成改动清单）；**日常改动不要手改 `package.json` 版本号或 CHANGELOG**。
 - 发布：tag `v<version>` 触发 `.github/workflows/release.yml`，先校验 tag 与 `package.json` 版本一致，再用 OIDC 发布到 npm。PR 合并永远由人工完成。
 

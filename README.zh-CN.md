@@ -162,7 +162,7 @@ src/command.ts                    /chain 参数解析（纯函数）
 src/ui.ts                         用户文案组装（notify / 页脚 / 转录条目 / 命令输出）
 examples/                         可直接复制的配置示例 + 字段说明
 tests/                            node:test 单测（含 stub pi 的装配集成测试）
-docs/                             设计文档
+docs/                             架构与设计文档（索引见 docs/README.md）
 ```
 
 ## License
