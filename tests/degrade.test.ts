@@ -123,10 +123,11 @@ test("parseDurationMs：单位与非法输入", () => {
 	assert.equal(parseDurationMs(undefined), undefined);
 });
 
-test("clampDegradeMs：只钳上界（小值原样保留）", () => {
-	assert.equal(clampDegradeMs(5_000, 3_600_000), 5_000);
+test("clampDegradeMs：钳制到 [1min, maxDegradeMs]", () => {
+	assert.equal(clampDegradeMs(5_000, 3_600_000), 60_000, "低于下限 → 1min");
 	assert.equal(clampDegradeMs(3_600_000, 3_600_000), 3_600_000);
 	assert.equal(clampDegradeMs(7_200_000, 3_600_000), 3_600_000);
+	assert.equal(clampDegradeMs(5_000, 30_000), 60_000, "上限低于下限时按下限");
 });
 
 test("formatClock：统一 YYYY-MM-DD HH:mm", () => {

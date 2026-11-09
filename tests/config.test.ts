@@ -4,7 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { agentDir, defaultConfigPath, defaultStateFile, expandPath, loadConfig } from "../src/config.ts";
-import { DEFAULT_DEGRADE_MS, DEFAULT_RESET_PATTERN, MAX_DEGRADE_MS } from "../src/constants.ts";
+import { DEFAULT_DEGRADE_MS, DEFAULT_RESET_PATTERN, MAX_DEGRADE_MS, MIN_DEGRADE_MS } from "../src/constants.ts";
 
 function writeConfig(content: unknown): string {
 	const path = join(mkdtempSync(join(tmpdir(), "pf-config-")), "provider-chain.json");
@@ -29,6 +29,7 @@ test("合法最小配置：默认路径与链路解析", () => {
 	assert.equal(result.ok, true);
 	if (!result.ok) return;
 	assert.equal(result.loaded.virtualProvider, "yansongda");
+	assert.equal(result.loaded.configPath, path, "实际加载的配置路径必须带出，供 /chain status 展示");
 	assert.equal(result.loaded.stateFile, join("/tmp/pf-agent", "provider-chain-state.json"));
 	assert.deepEqual(result.loaded.models[0]?.chain, [
 		{ provider: "volcengine", id: "deepseek-v4.1-flash" },
@@ -48,6 +49,16 @@ test("自定义 stateFile：支持 ~ 展开", () => {
 	assert.equal(result.ok, true);
 	if (!result.ok) return;
 	assert.equal(result.loaded.stateFile, join(homedir(), "custom", "state.json"));
+});
+
+test("自定义 stateFile：相对路径按 agentDir 解析，绝对路径原样", () => {
+	const relative = loadConfig(writeConfig({ ...MINIMAL, stateFile: "custom/state.json" }), "/tmp/pf-agent");
+	assert.equal(relative.ok, true);
+	if (relative.ok) assert.equal(relative.loaded.stateFile, join("/tmp/pf-agent", "custom", "state.json"));
+
+	const absolute = loadConfig(writeConfig({ ...MINIMAL, stateFile: "/tmp/pf-state/state.json" }), "/tmp/pf-agent");
+	assert.equal(absolute.ok, true);
+	if (absolute.ok) assert.equal(absolute.loaded.stateFile, "/tmp/pf-state/state.json");
 });
 
 test("配置文件不存在 / 内容损坏", () => {
@@ -194,6 +205,19 @@ test("defaultDegradeMs 被 maxDegradeMs 钳制（maxDegradeMs 是硬上限）", 
 	assert.equal(result.loaded.defaultDegradeMs, 3600_000);
 });
 
+test("降级时长下限 1min：defaultDegradeMs 与低于下限的 maxDegradeMs", () => {
+	const smallDefault = loadConfig(writeConfig({ ...MINIMAL, defaultDegradeMs: 30_000 }), "/tmp/pf-agent");
+	assert.equal(smallDefault.ok, true);
+	if (smallDefault.ok) assert.equal(smallDefault.loaded.defaultDegradeMs, MIN_DEGRADE_MS);
+
+	const smallMax = loadConfig(writeConfig({ ...MINIMAL, maxDegradeMs: 30_000 }), "/tmp/pf-agent");
+	assert.equal(smallMax.ok, true);
+	if (smallMax.ok) {
+		assert.equal(smallMax.loaded.maxDegradeMs, MIN_DEGRADE_MS, "硬上限低于 1min → 按 1min 处理");
+		assert.equal(smallMax.loaded.defaultDegradeMs, MIN_DEGRADE_MS);
+	}
+});
+
 test("agentDir/defaultConfigPath/defaultStateFile 跟随 PI_CODING_AGENT_DIR", () => {
 	const original = process.env.PI_CODING_AGENT_DIR;
 	process.env.PI_CODING_AGENT_DIR = "/tmp/pf-agent-env";
@@ -206,4 +230,6 @@ test("agentDir/defaultConfigPath/defaultStateFile 跟随 PI_CODING_AGENT_DIR", (
 		else process.env.PI_CODING_AGENT_DIR = original;
 	}
 	assert.equal(expandPath("~").length > 1, true);
+	assert.equal(expandPath("relative/state.json", "/tmp/pf-agent"), join("/tmp/pf-agent", "relative/state.json"));
+	assert.equal(expandPath("/tmp/state.json", "/tmp/pf-agent"), "/tmp/state.json");
 });

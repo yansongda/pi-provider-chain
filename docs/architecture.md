@@ -20,14 +20,14 @@
 extensions/provider-chain.ts   装配层：唯一 import 宿主 API / pi-tui 的地方
         │  portsFor(ctx) 把 ctx 适配成 RouterPorts 注入
         ▼
-src/router.ts                  策略层：档位推进 / 路由决策 / 恢复墓碑 / 页脚 / 命令输出（无 pi 依赖）
+src/router.ts                  策略层：档位推进 / 路由决策 / 恢复墓碑 / 页脚 / 命令编排（无 pi 依赖）
    ├── src/route-policy.ts     纯算法：该用链路里的哪一个（可穷举测试）
    ├── src/degrade.ts          纯算法：额度类错误判定 + 恢复时间/时长解析与钳制
    ├── src/model-ref.ts        纯函数：provider/id 解析与格式化
-   ├── src/state.ts            纯 IO：状态文件读/写/合并/剪枝
+   ├── src/state.ts            纯 IO：状态文件读/写/合并/剪枝 + 版本校验与快照活跃查询
    ├── src/config.ts           纯函数 + 只读 IO：配置加载与校验
    ├── src/transcript.ts       纯函数：转录条目契约 + agent_before_settle 的两步查询
-   └── src/ui.ts               纯函数：用户文案组装（选模板 + 汇总/截断）
+   └── src/ui.ts               纯函数：用户文案组装（选模板 + 汇总/截断 + `/chain status` 渲染）
             ▲
 src/constants.ts               叶子模块：机器常量 + MESSAGES 文案模板（不 import 项目内任何模块、不碰 IO）
 ```
@@ -58,7 +58,7 @@ A→E 依次执行，前一步给出可用模型就返回：
 
 | 段 | 条件 | 行为 |
 |---|---|---|
-| A | `reason === "retry"` 且带 `failed.message.errorMessage` | `reviewFailure(trigger: "retry")`：命中额度类关键词才**推进档位**（见 4） |
+| A | `reason === "retry"` 且带 `failed.message.errorMessage` | `applyFailure(trigger: "retry")`：命中额度类关键词才**推进档位**（见 4） |
 | B | `retry` 且失败模型 == 当前档位且可用 | 复用同档位 + 沿用失败请求的思考档位（`keepThinkingLevel`，保 prompt cache 与思考签名） |
 | C | `continuation` 且上一成功响应 == 当前档位且可用 | 沿用同档位与上一思考档位 |
 | D | 其余情况 | 从当前档位向链尾找第一个**有凭证**的模型；找不到再向前兜底 |
@@ -66,7 +66,7 @@ A→E 依次执行，前一步给出可用模型就返回：
 
 要点：
 
-- **可用 = 存在且有凭证**：`ports.resolve` 内部为 `ctx.modelRegistry.find()` + `hasConfiguredAuth()`；一次请求内每个 `provider/id` 只查一次。
+- **可用 = 存在且有凭证**：`ports.resolve` 内部为 `ctx.modelRegistry.find()` + `hasConfiguredAuth()`；一次请求内每个 `provider/id` 只查一次（含兜底 `catalog` 查询）。
 - `route()` 内任何异常都会先尝试回落主用，并在能回落时追加一条 `[pi-provider-chain] error` 转录条目（**不进模型上下文**），避免真实异常被掩盖。
 - 宿主传入的 `reason` 有四种：`user` / `continuation` / `retry` / `direct`；只有 `retry` 会触发 A 段。
 
@@ -81,7 +81,7 @@ A→E 依次执行，前一步给出可用模型就返回：
 
 `pi.on("message_end")` 收到成功的 assistant 响应（非 `error` / `aborted`，且 provider 属于本扩展管理的链路）时调用 `notePrimarySuccess`：若盘上条目 `level > 0` 且窗口已过期，则写 `level: 0, reason: "recovered"` **墓碑**并提示一次恢复。
 
-`session_start` 与 `model_select` 事件只负责刷新页脚（`refreshStatus`）。
+`session_start` 与 `model_select` 事件只负责刷新页脚（`refreshStatus`）。`notePrimarySuccess` 在一次已读快照内完成恢复判定与页脚刷新（装配层不再二次读状态/二次刷新）；并发下若他进程刚写入更深的活跃条目，单调合并会保留它，此时不重复发「已恢复」提示。
 
 页脚文案规则：档位 0 → `⓪ <chain[0]>`；档位 ≥ 1 → `① <chain[level]> · <恢复方> <YYYY-MM-DD HH:mm> 恢复`。
 时间与 `provider` 取自**链路内仍活跃的降级条目中 `until` 最小者**（并列取链路靠前者，`earliestRecovery`）：它不是本模型自己的 `stateKey` 条目
@@ -113,7 +113,7 @@ A→E 依次执行，前一步给出可用模型就返回：
 
 ## 5. 状态文件契约
 
-路径默认 `<agentDir>/provider-chain-state.json`（`agentDir = $PI_CODING_AGENT_DIR || ~/.pi/agent`，配置可用 `stateFile` 覆盖，支持 `~`）。
+路径默认 `<agentDir>/provider-chain-state.json`（`agentDir = $PI_CODING_AGENT_DIR || ~/.pi/agent`，配置可用 `stateFile` 覆盖：支持 `~`，相对路径按 `agentDir` 解析）。
 
 ```json
 {
@@ -127,10 +127,10 @@ A→E 依次执行，前一步给出可用模型就返回：
 | 规则 | 实现位置 | 说明 |
 |---|---|---|
 | 键 = `chain[0]` 的 provider | `config.ts` 计算 `LoadedModel.stateKey` | 同一 provider 下的多个虚拟模型**共享档位** |
-| 读取容错 | `state.ts` 的 `readState` | 文件缺失/损坏/字段非法一律当作空状态，不抛异常；不做缓存（避免读到陈旧快照） |
+| 读取容错 | `state.ts` 的 `readState` | 文件缺失/损坏/`version` 不符/字段非法一律当作空状态，不抛异常；不做缓存（避免读到陈旧快照） |
 | 原子写 | `state.ts` 的 `writeState` | 先写 `<path>.<pid>.tmp` 再 `rename`；失败清理临时文件并返回 `writeError`（用户看到「仅本进程生效」后缀） |
 | 单调合并 | `state.ts` 的 `upsertEntry` | 盘上同 key 条目仍活跃（`until > now`）**且**档位更深时保留盘上条目，避免父/子进程并发写把档位回退 |
-| 剪枝 | `state.ts` 的 `prune` | 每次写入清理 `until + 24h < now` 的历史条目 |
+| 剪枝 | `state.ts` 的 `prune` | 每次写入清理 `until + 24h < now` 的历史条目；`clearEntry` 在 key 不存在时也剪枝（无可清理处才跳过写盘） |
 | 恢复墓碑 | `router.ts` 的 `notePrimarySuccess` | 写 `{ level: 0, until: now, reason: "recovered" }`：让「已恢复」提示只出现一次，并发下也不会清掉他进程刚写入的更深活跃条目 |
 | 旧条目兼容 | `ui.ts` / 装配层渲染器 | 例：降级条目缺 `from` 时回落状态键，历史会话仍能渲染 |
 
@@ -150,7 +150,7 @@ A→E 依次执行，前一步给出可用模型就返回：
 
 ## 7. 配置契约
 
-- 只读 `<agentDir>/provider-chain.json`（`agentDir = $PI_CODING_AGENT_DIR || ~/.pi/agent`），**不做**目录搜索或 glob。扩展加载时读一次，改配置需 `/reload`。
+- 只读 `<agentDir>/provider-chain.json`（`agentDir = $PI_CODING_AGENT_DIR || ~/.pi/agent`），**不做**目录搜索或 glob。扩展加载时读一次并记录 `LoadedConfig.configPath`；`/chain status` 直接展示它，不在渲染时重新推导环境变量。改配置需 `/reload`。
 - 校验顺序与失败语义（`src/config.ts` 的 `loadConfig`）：
 
 | 情况 | 结果 |
@@ -165,7 +165,7 @@ A→E 依次执行，前一步给出可用模型就返回：
 
 - `chain[1..]` 中的非法项被**静默丢弃**（`chain[0]` 已保证合法，链路长度至少 1）。
 - `degradePatterns`：非空列表**完全覆盖**内置默认；缺省/空/全空白回落默认。纯字母词组项自动加词边界以减少误判。
-- 时长：`resetPattern` 解析不到恢复时间时用 `defaultDegradeMs`；所有时长统一钳制到 `[1min, maxDegradeMs]`，`maxDegradeMs` 同时也是 `defaultDegradeMs` 与手动降级的上限。
+- 时长：`resetPattern` 解析不到恢复时间时用 `defaultDegradeMs`；所有时长（默认值 / 手动降级 / 解析出的恢复时间）统一钳制到 `[1min, maxDegradeMs]`。`maxDegradeMs` 低于 1min 时按 1min 处理（下限优先）；配置加载时就把 `maxDegradeMs` 抬到下限，避免「硬上限」与下限互相矛盾。
 - `transcriptNotice: false` 时不追加转录条目（通知与页脚不受影响）。
 
 ## 8. 与 pi-subagents 的集成机制

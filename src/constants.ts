@@ -63,14 +63,12 @@ export const DEGRADE_TRIGGER = {
 	MANUAL: "manual",
 } as const;
 
-export type DegradeReason = (typeof DEGRADE_REASON)[keyof typeof DEGRADE_REASON];
 export type DegradeTrigger = (typeof DEGRADE_TRIGGER)[keyof typeof DEGRADE_TRIGGER];
 
 export const NOTIFY_KIND = { INFO: "info", WARNING: "warning", ERROR: "error" } as const;
 export type NotifyKind = (typeof NOTIFY_KIND)[keyof typeof NOTIFY_KIND];
 
 export const ENTRY_KIND = { DEGRADE: "degrade", RECOVER: "recover", ERROR: "error" } as const;
-export type EntryKind = (typeof ENTRY_KIND)[keyof typeof ENTRY_KIND];
 
 /** TUI 主题色名（渲染层用）。 */
 export const THEME_COLOR = {
@@ -111,6 +109,7 @@ export const DEFAULT_RESET_PATTERN =
 
 export const DEFAULT_DEGRADE_MS = 60 * 60 * 1000;
 export const MAX_DEGRADE_MS = 30 * 24 * 60 * 60 * 1000;
+/** 降级时长下限：`clampDegradeMs` 统一钳制，`maxDegradeMs` 低于它时按它处理。 */
 export const MIN_DEGRADE_MS = 60 * 1000;
 
 /** 过期条目保留时长：超过 `until + PRUNE_AFTER_MS` 的条目在写入时被清理。 */

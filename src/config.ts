@@ -8,13 +8,14 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import {
 	AGENT_DIR_ENV,
 	AGENT_DIR_SEGMENTS,
 	CONFIG_FILE_NAME,
 	DEFAULT_DEGRADE_MS,
 	MAX_DEGRADE_MS,
+	MIN_DEGRADE_MS,
 	MODEL_INPUT_KINDS,
 	type ModelInputKind,
 	STATE_FILE_NAME,
@@ -51,6 +52,8 @@ export interface LoadedModel {
 
 export interface LoadedConfig {
 	virtualProvider: string;
+	/** 实际加载的配置文件路径（`/chain status` 直接展示，不在渲染时重新推导） */
+	configPath: string;
 	stateFile: string;
 	defaultDegradeMs: number;
 	maxDegradeMs: number;
@@ -78,10 +81,11 @@ export function agentDir(): string {
 	return process.env[AGENT_DIR_ENV]?.trim() || join(homedir(), ...AGENT_DIR_SEGMENTS);
 }
 
-export function expandPath(p: string): string {
+/** 展开 `~` 并把相对路径按 `baseDir` 解析（避免按进程 cwd 解析，父子进程各写一份状态）。 */
+export function expandPath(p: string, baseDir: string = agentDir()): string {
 	if (p === "~") return homedir();
 	if (p.startsWith("~/")) return join(homedir(), p.slice(2));
-	return p;
+	return isAbsolute(p) ? p : join(baseDir, p);
 }
 
 export function defaultConfigPath(dir: string = agentDir()): string {
@@ -174,15 +178,16 @@ export function loadConfig(path: string = defaultConfigPath(), dir: string = age
 	const configuredStateFile =
 		typeof raw.stateFile === "string" && raw.stateFile.trim() ? raw.stateFile.trim() : undefined;
 
-	// maxDegradeMs 是硬上限：默认时长也钳制到它之下，保证「降级窗口不会超过配置的上限」
-	const maxDegradeMs = positiveNumber(raw.maxDegradeMs, MAX_DEGRADE_MS);
+	// maxDegradeMs 是硬上限，同时不得低于 1min 下限：低于下限的配置按 1min 处理
+	const maxDegradeMs = Math.max(positiveNumber(raw.maxDegradeMs, MAX_DEGRADE_MS), MIN_DEGRADE_MS);
 	const defaultDegradeMs = clampDegradeMs(positiveNumber(raw.defaultDegradeMs, DEFAULT_DEGRADE_MS), maxDegradeMs);
 
 	return {
 		ok: true,
 		loaded: {
 			virtualProvider,
-			stateFile: configuredStateFile ? expandPath(configuredStateFile) : defaultStateFile(dir),
+			configPath: path,
+			stateFile: configuredStateFile ? expandPath(configuredStateFile, dir) : defaultStateFile(dir),
 			defaultDegradeMs,
 			maxDegradeMs,
 			transcriptNotice: raw.transcriptNotice !== false,

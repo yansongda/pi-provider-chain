@@ -17,7 +17,7 @@ import {
 import { formatClock } from "./degrade.ts";
 import { refText } from "./model-ref.ts";
 import { clampLevel } from "./route-policy.ts";
-import type { DegradeEntry } from "./state.ts";
+import { activeEntryOf, type DegradeEntry, type StateFile } from "./state.ts";
 
 /** 档位徽标：0–9 用圈码，≥10 直接数字（与 `MESSAGES` 的 `⓪` 同一套视觉语言）。 */
 export function levelBadge(level: number): string {
@@ -142,4 +142,40 @@ export function commandStatusHeader(input: { selection?: string; configPath: str
 		MESSAGES.headerStateFile(input.stateFile),
 		"",
 	];
+}
+
+/**
+ * `/chain status` 的完整输出（头部 + 每个虚拟模型的链路与降级状态）。
+ *
+ * 纯投影：`state` / `now` / 路径都由调用方传入，router 只负责读取与转发；
+ * 旧条目兼容逻辑留在 `describeModel`（`stale` 直接传盘上条目）。
+ */
+export function renderStatusLines(input: {
+	virtualProvider: string;
+	models: readonly LoadedModel[];
+	state: StateFile;
+	now: number;
+	configPath: string;
+	stateFile: string;
+	selection?: string;
+	/** 未识别的子命令原文（供提示） */
+	unknown?: string;
+}): string[] {
+	const lines = commandStatusHeader({
+		selection: input.selection,
+		configPath: input.configPath,
+		stateFile: input.stateFile,
+	});
+	if (input.unknown) lines.push(MESSAGES.unknownSubcommand(input.unknown), "");
+	for (const model of input.models) {
+		lines.push(
+			...describeModel({
+				virtualProvider: input.virtualProvider,
+				model,
+				active: activeEntryOf(input.state, model.stateKey, input.now),
+				stale: input.state.degraded[model.stateKey],
+			}),
+		);
+	}
+	return lines;
 }

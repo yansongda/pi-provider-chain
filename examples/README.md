@@ -13,7 +13,7 @@ cp examples/provider-chain.json ~/.pi/agent/provider-chain.json
 ```
 
 > 这份示例不会被 Pi 自动加载：Pi 只加载本包的 `extensions/provider-chain.ts`，
-> 配置必须位于 `<agentDir>/provider-chain.json`（或在配置里用 `stateFile` 之外的字段覆盖，见下）。
+> 配置必须位于 `<agentDir>/provider-chain.json`；状态文件位置可用配置里的 `stateFile` 覆盖（见下）。
 
 ## 字段速查
 
@@ -28,10 +28,10 @@ cp examples/provider-chain.json ~/.pi/agent/provider-chain.json
 | `models[].chain[]` | ✅ | `["volcengine/deepseek-v4.1-flash", "workbuddy/deepseek-v4.1-flash"]` | 链路：`chain[0]` 为主用，其后按序作为后备；`chain[0]` 非法直接报错，后续非法项被静默忽略；建议链路总长 ≤ 5 |
 | `degradePatterns[]` | - | 14 项内置默认 | 命中即降级的文本关键词（忽略大小写）；非空列表**完全覆盖**默认值，留空/全空白则回落默认 |
 | `resetPattern` | - | 内置正则 | 从错误文本解析恢复时间；第 1/2 捕获组为日期/时间，第 3 组可选时区（`+08:00` / `+0800`） |
-| `defaultDegradeMs` | - | `3600000`（1h） | 解析不到恢复时间时的降级时长；超过 `maxDegradeMs` 时被钳制 |
-| `maxDegradeMs` | - | `2592000000`（30d） | 降级时长**硬上限**，同时钳制解析结果、默认时长与 `/chain degrade <时长>` |
+| `defaultDegradeMs` | - | `3600000`（1h） | 解析不到恢复时间时的降级时长；钳制到 `[1min, maxDegradeMs]` |
+| `maxDegradeMs` | - | `2592000000`（30d） | 降级时长**硬上限**，同时钳制解析结果、默认时长与 `/chain degrade <时长>`；低于 1min 时按 1min 处理 |
 | `transcriptNotice` | - | `true` | 是否在转录里追加可见条目（前缀 `[pi-provider-chain]`，**不进模型上下文**） |
-| `stateFile` | - | 未出现（默认 `~/.pi/agent/provider-chain-state.json`） | 跨进程共享的降级状态文件路径，支持 `~` |
+| `stateFile` | - | 未出现（默认 `~/.pi/agent/provider-chain-state.json`） | 跨进程共享的降级状态文件路径，支持 `~`；相对路径按 `agentDir` 解析 |
 
 完整字段语义与默认值见仓库根目录 [README.zh-CN.md](../README.zh-CN.md#配置)（英文版见 [README.md](../README.md#configuration)）。
 

@@ -2,7 +2,7 @@
  * 降级判定与时间解析（纯函数模块）。
  *
  * - 判定：错误文本按配置的 pattern 做「忽略大小写的子串匹配」，命中即降级
- * - 时间：从错误文本解析恢复时间（`reset at ...`），失败则用默认时长，并钳制到 [1min, maxDegradeMs]
+ * - 时间：从错误文本解析恢复时间（`reset at ...`），失败则用默认时长，并统一钳制到 [1min, maxDegradeMs]
  */
 
 import {
@@ -60,7 +60,7 @@ export function compileResetPattern(source?: string): RegExp {
 	return new RegExp(DEFAULT_RESET_PATTERN, "i");
 }
 
-/** 从错误文本解析恢复时间戳；解析失败返回 undefined，成功则钳制到 `[now + 1min, now + maxDegradeMs]`。 */
+/** 从错误文本解析恢复时间戳；解析失败返回 undefined，成功则统一钳制到 `[now + 1min, now + maxDegradeMs]`。 */
 export function parseResetTs(
 	resetRe: RegExp,
 	text: string,
@@ -75,7 +75,8 @@ export function parseResetTs(
 	const tzRaw = tz ? tz.replace(/^([+-]\d{2})(\d{2})$/, "$1:$2") : undefined;
 	const ts = Date.parse(`${date}T${time}${tzRaw ?? ""}`);
 	if (!Number.isFinite(ts)) return undefined;
-	return Math.min(Math.max(ts, opts.now + MIN_DEGRADE_MS), opts.now + opts.maxDegradeMs);
+	// 与 `clampDegradeMs` 共用同一条钳制规则，避免「低于 1min」与「超过 max」两处各写一遍
+	return opts.now + clampDegradeMs(ts - opts.now, opts.maxDegradeMs);
 }
 
 /** 解析 `30m` / `2h` / `1d` / `500ms` 之类的时长；非法返回 undefined。默认单位分钟。 */
@@ -92,13 +93,14 @@ export function parseDurationMs(text: string | undefined): number | undefined {
 }
 
 /**
- * 降级时长的**统一硬上限**：超过 `maxDegradeMs` 即截断。
+ * 降级时长的**统一钳制**：下限 `MIN_DEGRADE_MS`（1min），上限 `maxDegradeMs`。
  *
- * 只钳上界（下限留给调用方语义：`defaultDegradeMs` / 手动时长允许小于 1 分钟，
- * 只有 `parseResetTs` 解析出的时间戳才保证 ≥ now + 1min）。
+ * - 上限低于下限时**按下限**处理（避免一份把窗口压到几秒的配置让每次请求都重试降级）；
+ * - `defaultDegradeMs` / 手动时长 / 解析出的恢复时间都走这里，保证同一套边界语义。
  */
 export function clampDegradeMs(ms: number, maxDegradeMs: number): number {
-	return Math.min(ms, maxDegradeMs);
+	const upper = Math.max(maxDegradeMs, MIN_DEGRADE_MS);
+	return Math.min(Math.max(ms, MIN_DEGRADE_MS), upper);
 }
 
 /**

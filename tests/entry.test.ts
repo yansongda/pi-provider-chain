@@ -9,7 +9,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
  * 装配层集成测试：stub pi + 临时 AGENT_DIR。
  *
  * 覆盖：虚拟模型注册、无降级时走主用、状态文件里有降级时走备用、
- * retry 命中额度错误时自动推进档位并写状态、配置缺失时的降级路径、/fallback 命令注册与执行。
+ * retry 命中额度错误时自动推进档位并写状态、配置缺失时的降级路径、/chain 命令注册与执行。
  */
 
 interface RouteResult {
@@ -146,6 +146,11 @@ test("注册虚拟模型与 /chain 命令（provider / id / 思考档位来自�
 	assert.deepEqual(
 		command?.getArgumentCompletions?.("res")?.map((item) => item.value),
 		["reset"],
+	);
+	assert.deepEqual(
+		command?.getArgumentCompletions?.("degrade 3")?.map((item) => item.value),
+		["degrade 30m"],
+		"逐词前缀：参数也能补全",
 	);
 	assert.equal(command?.getArgumentCompletions?.("")?.length, 4);
 	assert.equal(captured.models.length, 1);

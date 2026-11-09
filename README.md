@@ -56,10 +56,10 @@ The minimal working config (you only have to declare one primary model; see the 
 | `models[].chain[]` | ✅ | - | The chain: `chain[0]` is the primary, everything after it is an ordered backup (`provider/id`); an invalid `chain[0]` raises an error, later invalid entries are silently ignored; **a total chain length ≤ 5 is recommended** (the common gateway cap — an over-long chain makes one failure pay the failure cost on provider after provider) |
 | `degradePatterns[]` | - | 14 built-ins | Keywords that trigger a fallback on match (case-insensitive; a non-empty list **fully overrides** the defaults, an empty/all-whitespace list falls back to the built-in defaults) |
 | `resetPattern` | - | built-in regex | Regex that parses the recovery time out of the error text (capture group 1/2 is date/time, optional group 3 is the timezone) |
-| `defaultDegradeMs` | - | `3600000` (1h) | Fallback duration when no recovery time can be parsed (clamped when it exceeds `maxDegradeMs`) |
-| `maxDegradeMs` | - | `2592000000` (30d) | **Hard cap** on the fallback duration; clamps the parsed reset time, `defaultDegradeMs`, and a manual `/chain degrade <duration>` |
+| `defaultDegradeMs` | - | `3600000` (1h) | Fallback duration when no recovery time can be parsed (clamped to `[1min, maxDegradeMs]`) |
+| `maxDegradeMs` | - | `2592000000` (30d) | **Hard cap** on the fallback duration; clamps the parsed reset time, `defaultDegradeMs`, and a manual `/chain degrade <duration>`; a configured value below 1min is treated as 1min |
 | `transcriptNotice` | - | `true` | Whether to append a visible entry to the transcript (does not affect the model context) |
-| `stateFile` | - | `~/.pi/agent/provider-chain-state.json` | State file path (supports `~`) |
+| `stateFile` | - | `~/.pi/agent/provider-chain-state.json` | State file path (supports `~`; relative paths resolve against `agentDir`) |
 
 Built-in default `degradePatterns`: `AccountQuotaExceeded`, `QuotaExceeded`, `AgentPlanQuotaExceeded`, `SetLimitExceeded`, `InvalidSubscription`, `subscription has expired`, `AccountOverdueError`, `ServiceOverdue`, `overdue balance`, `usage quota`, `exceeded the quota`, `insufficient_quota`, `out of budget`, `billing`.
 
@@ -93,7 +93,7 @@ Put this in `~/.pi/agent/settings.json` (or `$PI_CODING_AGENT_DIR/settings.json`
 | Command | Description |
 | --- | --- |
 | `/chain` or `/chain status` | Currently selected model, config and state file paths, and every virtual model's chain and degradation state (subcommands are completed) |
-| `/chain degrade [duration]` | Manually fall back to `①` (the first backup; `30m` / `2h` / `1d`; defaults to `defaultDegradeMs`, capped by `maxDegradeMs`) |
+| `/chain degrade [duration]` | Manually fall back to `①` (the first backup; `30m` / `2h` / `1d`; defaults to `defaultDegradeMs`, clamped to `[1min, maxDegradeMs]`) |
 | `/chain reset` | Clear the degradation state of the provider the current model belongs to (aliases `primary` / `clear`) |
 | `/chain reload` | Reload the extension and config (equivalent to `/reload`) |
 
@@ -111,6 +111,7 @@ Put this in `~/.pi/agent/settings.json` (or `$PI_CODING_AGENT_DIR/settings.json`
 ```
 
 - The key is the **provider of `chain[0]`** (all virtual models under one provider share the level).
+- The file is only read when `version` is `1`; a missing/unsupported version is treated as empty state (never guessed).
 - Writes use `tmp + rename` atomic replacement; concurrent writes are merged monotonically ("for the same key keep the larger level"), so a parent and a child process never push the level back on each other.
 - There is no file lock between read and write: if two processes degrade **different** providers **at the same moment**, a record can theoretically be lost; the provider's next request will degrade again, so it self-heals.
 - Every write prunes historical entries older than `until + 24h`.

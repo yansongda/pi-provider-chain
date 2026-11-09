@@ -56,10 +56,10 @@ pi list
 | `models[].chain[]` | ✅ | - | 链路：`chain[0]` 为主用，其后按顺序作为后备（`provider/id`）；`chain[0]` 非法直接报错，后续非法项被静默忽略；**建议链路总长 ≤ 5**（业界网关默认上限，链过长会让一次故障在多个 provider 上依次付出失败代价） |
 | `degradePatterns[]` | - | 内置 14 项 | 命中即降级的关键词（忽略大小写；非空列表**完全覆盖**默认值，留空/全空白则回落内置默认） |
 | `resetPattern` | - | 内置正则 | 从错误文本解析恢复时间的正则（第 1/2 组为日期/时间，第 3 组可选时区） |
-| `defaultDegradeMs` | - | `3600000`（1h） | 解析不到恢复时间时的降级时长（超过 `maxDegradeMs` 时被钳制） |
-| `maxDegradeMs` | - | `2592000000`（30d） | 降级时长**硬上限**，钳制重置时间解析结果、`defaultDegradeMs` 与手动 `/chain degrade <时长>` |
+| `defaultDegradeMs` | - | `3600000`（1h） | 解析不到恢复时间时的降级时长（钳制到 `[1min, maxDegradeMs]`） |
+| `maxDegradeMs` | - | `2592000000`（30d） | 降级时长**硬上限**，钳制重置时间解析结果、`defaultDegradeMs` 与手动 `/chain degrade <时长>`；配置值低于 1min 时按 1min 处理 |
 | `transcriptNotice` | - | `true` | 是否在转录里追加可见条目（不影响模型上下文） |
-| `stateFile` | - | `~/.pi/agent/provider-chain-state.json` | 状态文件路径（支持 `~`） |
+| `stateFile` | - | `~/.pi/agent/provider-chain-state.json` | 状态文件路径（支持 `~`；相对路径按 `agentDir` 解析） |
 
 内置默认 `degradePatterns`：`AccountQuotaExceeded`、`QuotaExceeded`、`AgentPlanQuotaExceeded`、`SetLimitExceeded`、`InvalidSubscription`、`subscription has expired`、`AccountOverdueError`、`ServiceOverdue`、`overdue balance`、`usage quota`、`exceeded the quota`、`insufficient_quota`、`out of budget`、`billing`。
 
@@ -93,7 +93,7 @@ pi list
 | 命令 | 说明 |
 | --- | --- |
 | `/chain` 或 `/chain status` | 当前选中模型、配置与状态文件路径、每个虚拟模型的链路与降级状态（子命令有补全） |
-| `/chain degrade [时长]` | 手动降级到 `①`（第一后备）（`30m` / `2h` / `1d`，默认 `defaultDegradeMs`，上限 `maxDegradeMs`） |
+| `/chain degrade [时长]` | 手动降级到 `①`（第一后备）（`30m` / `2h` / `1d`，默认 `defaultDegradeMs`，钳制到 `[1min, maxDegradeMs]`） |
 | `/chain reset` | 清除当前模型所属 provider 的降级状态（别名 `primary` / `clear`） |
 | `/chain reload` | 重新加载扩展与配置（等价 `/reload`） |
 
@@ -111,6 +111,7 @@ pi list
 ```
 
 - key 为 **`chain[0]` 的 provider**（同一 provider 下所有虚拟模型共享档位）。
+- 只有 `version` 为 `1` 时才读取；缺失或不支持的版本一律当作空状态（不做猜测）。
 - 写入采用 `tmp + rename` 原子替换；并发写按「同 key 取更大 level」单调合并（父/子进程不会互相把档位打回去）。
 - 读-改-写之间没有文件锁：两个进程**同时**降级不同 provider 时，理论上可能丢一条记录；该 provider 的下一次请求会重新降级，可自愈。
 - 每次写入会清理 `until + 24h < now` 的历史条目。

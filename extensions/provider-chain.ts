@@ -86,6 +86,8 @@ export default function (pi: ExtensionAPI) {
 	const cfg = result.loaded;
 	const models = cfg.models;
 	const byId = new Map(models.map((m) => [m.config.id, m] as const));
+	/** `message_end` 只需判断 provider 是否属于任一链路的 `chain[0]`，预先建 Set 避免每轮线性扫描。 */
+	const stateKeys = new Set(models.map((m) => m.stateKey));
 	/** 页脚文案去重：内容未变则不重复调用 `ctx.ui.setStatus`（避免每轮响应重绘）。 */
 	let lastStatus: string | undefined;
 
@@ -119,8 +121,8 @@ export default function (pi: ExtensionAPI) {
 				return selected ? { provider: selected.provider, id: selected.id } : undefined;
 			},
 			readState: () => readState(cfg.stateFile),
-			upsert: (provider, entry) => upsertEntry(cfg.stateFile, provider, entry),
-			clear: (provider) => clearEntry(cfg.stateFile, provider),
+			upsert: (provider, entry, now) => upsertEntry(cfg.stateFile, provider, entry, now),
+			clear: (provider, now) => clearEntry(cfg.stateFile, provider, now),
 			/** 只有「模型存在且已配置凭证」才算可用；返回的模型供 route() 直接派发。 */
 			resolve: (ref) => {
 				const model = find(ref);
@@ -188,7 +190,7 @@ export default function (pi: ExtensionAPI) {
 		if (!assistant) return;
 
 		// 先写降级状态：即便找不到失败消息所在的 entry（无法续跑），下一次请求也会走备用
-		const entry = routerFor(ctx).reviewFailure(model, {
+		const entry = routerFor(ctx).applyFailure(model, {
 			errorText: String(assistant.errorMessage),
 			failedRef: refOf(assistant),
 			trigger: DEGRADE_TRIGGER.SETTLE,
@@ -209,10 +211,10 @@ export default function (pi: ExtensionAPI) {
 		const message = event.message;
 		if (!message || message.role !== "assistant") return;
 		if (message.stopReason === "error" || message.stopReason === "aborted") return;
-		if (!models.some((m) => m.stateKey === message.provider)) return;
+		if (!stateKeys.has(message.provider)) return;
 		const router = routerFor(ctx);
+		// 恢复判定与页脚刷新共用同一份已读快照（不再二次读状态 / 二次刷新）
 		router.notePrimarySuccess(message.provider);
-		router.refreshStatus();
 	});
 
 	// --- 模型切换：页脚常驻内容随选中模型变化 ---
@@ -230,7 +232,13 @@ export default function (pi: ExtensionAPI) {
 		description: MESSAGES.commandDescription,
 		getArgumentCompletions: (prefix: string) => {
 			const text = prefix.trim().toLowerCase();
-			return text ? COMMAND_COMPLETIONS.filter((item) => item.value.startsWith(text)) : [...COMMAND_COMPLETIONS];
+			if (!text) return [...COMMAND_COMPLETIONS];
+			// 逐词前缀匹配：既支持子命令（"res" → reset），也支持带参数项（"degrade 3" → "degrade 30m"）
+			const tokens = text.split(/\s+/);
+			return COMMAND_COMPLETIONS.filter((item) => {
+				const valueTokens = item.value.toLowerCase().split(/\s+/);
+				return tokens.every((token, index) => (valueTokens[index] ?? "").startsWith(token));
+			});
 		},
 		handler: async (args, ctx) => {
 			const parsed = parseCommandArgs(args);

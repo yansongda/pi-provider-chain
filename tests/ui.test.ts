@@ -16,6 +16,7 @@ import {
 	footerDegraded,
 	levelBadge,
 	recoverNotice,
+	renderStatusLines,
 } from "../src/ui.ts";
 
 const UNTIL = new Date(2026, 9, 28, 23, 59).getTime();
@@ -197,6 +198,37 @@ test("commandStatusHeader：含配置与状态文件路径", () => {
 		"",
 	]);
 	assert.equal(commandStatusHeader({ configPath: "c", stateFile: "s" })[0], "当前: （未选择）");
+});
+
+test("renderStatusLines：头部 + 活跃/过期状态 + 未知子命令（纯投影）", () => {
+	const active = renderStatusLines({
+		virtualProvider: "yansongda",
+		models: [MODEL],
+		state: { version: 1, degraded: { volcengine: ACTIVE } },
+		now: UNTIL - 3_600_000,
+		configPath: "/tmp/pf/provider-chain.json",
+		stateFile: "/tmp/pf/provider-chain-state.json",
+		selection: "yansongda/deepseek-v4.1-flash",
+		unknown: "nope",
+	});
+	assert.deepEqual(active.slice(0, 4), [
+		"当前: yansongda/deepseek-v4.1-flash",
+		"配置: /tmp/pf/provider-chain.json",
+		"状态文件: /tmp/pf/provider-chain-state.json",
+		"",
+	]);
+	assert.deepEqual(active.slice(4, 6), ["未知子命令: nope（可用: /chain [status | degrade [时长] | reset | reload]）", ""]);
+	assert.equal(active.at(-1), `  原因: AccountQuotaExceeded · ${UNTIL_TEXT} 恢复`);
+
+	const stale = renderStatusLines({
+		virtualProvider: "yansongda",
+		models: [MODEL],
+		state: { version: 1, degraded: { volcengine: STALE } },
+		now: UNTIL,
+		configPath: "c",
+		stateFile: "s",
+	});
+	assert.ok(stale.at(-1)?.includes("已过期（下一请求回到 ⓪ volcengine）"), stale.at(-1));
 });
 
 test("ui 模块只做格式化：输出不含 undefined/NaN", () => {

@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readdirSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { PRUNE_AFTER_MS } from "../src/constants.ts";
-import { activeEntry, clearEntry, type DegradeEntry, readState, upsertEntry } from "../src/state.ts";
+import { activeEntryOf, clearEntry, type DegradeEntry, readState, upsertEntry } from "../src/state.ts";
 
 function tempStatePath(): string {
 	return join(mkdtempSync(join(tmpdir(), "pf-state-")), "provider-chain-state.json");
@@ -22,13 +22,13 @@ test("写入后可读回", () => {
 	assert.equal(result.changed, true);
 	assert.equal(result.writeError, undefined);
 	assert.deepEqual(readState(path).degraded.volcengine, entry());
-	assert.deepEqual(readState(path).degraded.volcengine, activeEntry(path, "volcengine", NOW));
+	assert.deepEqual(readState(path).degraded.volcengine, activeEntryOf(readState(path), "volcengine", NOW));
 });
 
 test("文件不存在或损坏 → 空状态，不抛异常", () => {
 	const missing = tempStatePath();
 	assert.deepEqual(readState(missing), { version: 1, degraded: {} });
-	assert.equal(activeEntry(missing, "volcengine", NOW), undefined);
+	assert.equal(activeEntryOf(readState(missing), "volcengine", NOW), undefined);
 
 	const broken = tempStatePath();
 	writeFileSync(broken, "{ not json", "utf8");
@@ -36,10 +36,10 @@ test("文件不存在或损坏 → 空状态，不抛异常", () => {
 	assert.deepEqual(readState(broken), { version: 1, degraded: {} });
 });
 
-test("activeEntry：过期条目视为未降级", () => {
+test("activeEntryOf：过期条目视为未降级", () => {
 	const path = tempStatePath();
 	upsertEntry(path, "volcengine", entry({ until: NOW - 1 }), NOW - 3_600_000);
-	assert.equal(activeEntry(path, "volcengine", NOW), undefined);
+	assert.equal(activeEntryOf(readState(path), "volcengine", NOW), undefined);
 	assert.equal(readState(path).degraded.volcengine?.reason, "test");
 });
 
@@ -98,6 +98,21 @@ test("clearEntry：清除后 state 不含该 key，重复清除仍成功", () =>
 	assert.equal(clearEntry(path, "volcengine").ok, true);
 });
 
+test("clearEntry：key 不存在时也不写文件（避免无意义创建）", () => {
+	const path = tempStatePath();
+	assert.equal(clearEntry(path, "never", NOW).ok, true);
+	assert.equal(existsSync(path), false);
+});
+
+test("clearEntry：key 不存在时仍清理过期历史条目（与 upsertEntry 一致）", () => {
+	const path = tempStatePath();
+	upsertEntry(path, "stale", entry({ until: NOW - PRUNE_AFTER_MS - 1000 }), NOW - PRUNE_AFTER_MS - 2000);
+	assert.deepEqual(Object.keys(readState(path).degraded), ["stale"]);
+
+	assert.equal(clearEntry(path, "never", NOW).ok, true);
+	assert.deepEqual(Object.keys(readState(path).degraded), []);
+});
+
 test("clearEntry：写入时顺带清理过期历史条目（与 upsertEntry 一致）", () => {
 	const path = tempStatePath();
 	upsertEntry(path, "active", entry(), NOW);
@@ -117,6 +132,17 @@ test("readState：结构非法的条目被忽略，合法条目保留", () => {
 		"utf8",
 	);
 	assert.deepEqual(Object.keys(readState(path).degraded), ["good"]);
+});
+
+test("readState：version 缺失或不是当前版本 → 空状态（不按错误语义读写）", () => {
+	const path = tempStatePath();
+	for (const content of [
+		JSON.stringify({ degraded: { volcengine: entry() } }),
+		JSON.stringify({ version: 2, degraded: { volcengine: entry() } }),
+	]) {
+		writeFileSync(path, content, "utf8");
+		assert.deepEqual(readState(path), { version: 1, degraded: {} });
+	}
 });
 
 test("readState：只认 reason 字段（旧 code 字段被忽略，回落默认 quota）", () => {

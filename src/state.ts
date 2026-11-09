@@ -1,7 +1,7 @@
 /**
  * 降级状态文件（纯 IO 模块，无 pi 依赖）。
  *
- * - 读取即解析；文件缺失/损坏一律视为空状态，不抛异常（文件仅数百字节，不做缓存，避免读到陈旧快照）
+ * - 读取即解析；文件缺失/损坏/**`version` 不符**一律视为空状态，不抛异常（文件仅数百字节，不做缓存，避免读到陈旧快照）
  * - 写入为 `tmp + rename` 原子替换
  * - 合并语义：同一 key 若盘上条目仍活跃且档位更深，保留盘上条目（单调前进）
  *   —— 避免父进程与子 agent 并发写时把已推进的档位回退
@@ -32,7 +32,7 @@ function stateWith(degraded: Record<string, DegradeEntry>): StateFile {
 	return { version: STATE_VERSION, degraded };
 }
 
-export function emptyState(): StateFile {
+function emptyState(): StateFile {
 	return stateWith({});
 }
 
@@ -52,6 +52,8 @@ function normalizeEntry(value: unknown): DegradeEntry | undefined {
 export function readState(path: string): StateFile {
 	try {
 		const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<StateFile> | null;
+		// 只认当前结构：缺失 version（早期/外部手写）或未来版本都当作空状态，避免按错误的语义读写
+		if (!parsed || typeof parsed !== "object" || parsed.version !== STATE_VERSION) return emptyState();
 		const raw = parsed && typeof parsed.degraded === "object" && parsed.degraded ? (parsed.degraded as Record<string, unknown>) : {};
 		const degraded: Record<string, DegradeEntry> = {};
 		for (const [key, value] of Object.entries(raw)) {
@@ -64,9 +66,13 @@ export function readState(path: string): StateFile {
 	}
 }
 
-/** 仍处于降级窗口内的条目；已过期或结构非法返回 undefined。 */
-export function activeEntry(path: string, provider: string, now: number = Date.now()): DegradeEntry | undefined {
-	const entry = readState(path).degraded[provider];
+/**
+ * 快照里仍处于降级窗口内的条目（纯函数，不读盘）。
+ *
+ * 调用方已经持有 `state` 时用它，避免为每个读取点重复读状态文件。
+ */
+export function activeEntryOf(state: StateFile, provider: string, now: number): DegradeEntry | undefined {
+	const entry = state.degraded[provider];
 	if (!entry || entry.until <= now) return undefined;
 	return entry;
 }
@@ -127,13 +133,20 @@ export function upsertEntry(
 	return { entry: merged, changed };
 }
 
-/** 清除某个 provider 的降级状态（不存在也视为成功）；与 `upsertEntry` 一致，写入时顺带清理过期历史条目。 */
+/**
+ * 清除某个 provider 的降级状态（不存在也视为成功）。
+ *
+ * 与 `upsertEntry` 一致，清理时顺带剪枝：即使 key 不存在，也会写盘清掉过期历史条目；
+ * 只有「key 不存在且没有任何可剪枝条目」时才跳过写盘（避免无意义的文件创建/改写）。
+ */
 export function clearEntry(path: string, provider: string, now: number = Date.now()): { ok: boolean; error?: string } {
 	const state = readState(path);
-	if (!(provider in state.degraded)) return { ok: true };
+	const hadProvider = provider in state.degraded;
 	const degraded = { ...state.degraded };
 	delete degraded[provider];
-	const written = writeState(path, prune(stateWith(degraded), now));
+	const pruned = prune(stateWith(degraded), now);
+	if (!hadProvider && Object.keys(pruned.degraded).length === Object.keys(state.degraded).length) return { ok: true };
+	const written = writeState(path, pruned);
 	if (!written.ok) return { ok: false, error: written.error };
 	return { ok: true };
 }

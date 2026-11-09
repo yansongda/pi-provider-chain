@@ -21,11 +21,11 @@ src/model-ref.ts              provider/id 解析与格式化（纯函数）
 src/degrade.ts                降级判定（pattern 子串匹配）+ 恢复时间/时长解析与钳制（纯函数）
 src/route-policy.ts           路由算法：该用链路里的哪一个（纯函数，可穷举测试）
 src/router.ts                 策略唯一归属地：档位推进 / 路由决策 / 恢复墓碑 / 页脚 / 命令输出（端口注入，无 pi 依赖）
-src/state.ts                  状态文件读写：tmp+rename 原子写、单调合并、剪枝（纯 IO）
+src/state.ts                  状态文件读写：tmp+rename 原子写、单调合并、剪枝、版本校验（纯 IO）
 src/config.ts                 配置加载与校验（纯函数 + 只读 IO）
 src/transcript.ts             转录条目契约 + agent_before_settle 兜底路径的两步纯查询
 src/command.ts                /chain 参数解析（action 归一化 + 时长，纯函数）
-src/ui.ts                     用户文案组装（选模板 + 汇总/截断），字面文案全部来自 constants.ts
+src/ui.ts                     用户文案组装（选模板 + 汇总/截断 + `/chain status` 纯粹渲染），字面文案全部来自 constants.ts
 tests/*.test.ts               node:test 单测；entry.test.ts 是唯一 stub pi 的装配级集成测试
 examples/                     可直接用的配置示例 + 字段速查（字段语义权威处之一）
 docs/README.md                 文档索引与维护约定（单一权威来源、目录约定）
@@ -47,7 +47,7 @@ docs/YYYY-MM-DD-*.md           日期化设计记录（落盘后视为历史快�
 ### 降级语义不变量
 
 - **只有额度类错误才推进档位**：429 瞬时限流 / 5xx / 网络错误不干预，交回 Pi 自身重试。放宽这个条件属破坏性变更，必须先说明理由并同步测试。
-- 两条触发路径：`route()` 内的 `retry` 快路径（`reviewFailure`）；`agent_before_settle` 兜底路径（不可重试错误）。兜底路径**必须**先写状态，再定位失败消息所在 entry 并返回 `entries` + `continue: true`；定位不到时保持「只写状态、不续跑」。
+- 两条触发路径：`route()` 内的 `retry` 快路径（`applyFailure`）；`agent_before_settle` 兜底路径（不可重试错误）。兜底路径**必须**先写状态，再定位失败消息所在 entry 并返回 `entries` + `continue: true`；定位不到时保持「只写状态、不续跑」。
 - 推进不得停在失败模型上：`next = clampLevel(max(当前档位, 失败模型下标 + 1), 链路长度)`；`settle` 兜底只接管「失败者就是当前档位」的情形（因为它要剔除那条失败消息）。
 - 保缓存：`retry` / `continuation` 且失败（或上一响应）就是当前档位时，复用同档位与思考档位，不得无故切模型。
 - 恢复：窗口过期后**第一条主用成功响应**写 `level: 0` 墓碑（`notePrimarySuccess`），让「已恢复」提示只出现一次；并发下单调合并会保留他进程刚写入的更深活跃条目。
@@ -57,7 +57,7 @@ docs/YYYY-MM-DD-*.md           日期化设计记录（落盘后视为历史快�
 
 - 结构 `{"version": 1, "degraded": { <provider>: { level, until, reason, at } }}`；键是 `chain[0]` 的 provider（同一 provider 下所有虚拟模型共享档位）。
 - 写入：`tmp + rename` 原子替换；同 key 单调合并（盘上更深的活跃条目保留，绝不回退）；每次写入清理 `until + 24h` 的历史条目。
-- 读取：文件缺失或损坏一律视为空状态，不抛异常（不做缓存，避免读到陈旧快照）。
+- 读取：文件缺失、损坏或 `version` 不是 `1` 一律视为空状态，不抛异常（不做缓存，避免读到陈旧快照）。
 - 兼容性：`/chain status` 与条目渲染必须能渲染**旧条目**（例如降级条目缺 `from` 时回落状态键）。改字段名等于破坏历史会话渲染，属破坏性变更。
 
 ### 宿主契约要点
@@ -68,9 +68,9 @@ docs/YYYY-MM-DD-*.md           日期化设计记录（落盘后视为历史快�
 
 ### 配置契约
 
-- 配置只从 `<agentDir>/provider-chain.json` 读（`agentDir = $PI_CODING_AGENT_DIR || ~/.pi/agent`），不做任何 glob/搜索；状态文件默认 `<agentDir>/provider-chain-state.json`。
+- 配置只从 `<agentDir>/provider-chain.json` 读（`agentDir = $PI_CODING_AGENT_DIR || ~/.pi/agent`），不做任何 glob/搜索；状态文件默认 `<agentDir>/provider-chain-state.json`（配置 `stateFile` 的相对路径同样按 `agentDir` 解析，`~` 仍然展开）。
 - `chain[0]` 非法 → 报错并整体禁用（只在 `session_start` 与 `/chain` 提示原因，不接管任何路由）；后续非法项静默忽略。
-- `degradePatterns` 非空列表**完全覆盖**内置默认，留空/全空白回落默认；`resetPattern` 解析不到时间时用 `defaultDegradeMs`，一律钳制到 `[1min, maxDegradeMs]`。
+- `degradePatterns` 非空列表**完全覆盖**内置默认，留空/全空白回落默认；`resetPattern` 解析不到时间时用 `defaultDegradeMs`，一律钳制到 `[1min, maxDegradeMs]`（`maxDegradeMs` 低于 1min 时按 1min 处理）。
 
 ## 常用命令（与 CI 对齐）
 
@@ -128,7 +128,7 @@ CI（`.github/workflows/ci.yml`）：`bun install --frozen-lockfile` → `typech
 
 1. 策略是否仍留在 `src/router.ts`（入口层没有新增判定 / 文案 / IO）？
 2. 文案是否只走 `MESSAGES` 且保持单一出口（notify 与转录条目同句）？旧会话条目的渲染兼容是否保住？
-3. 状态文件是否仍满足：原子写、单调合并、不回退、与 `version: 1` 及旧字段兼容？
+3. 状态文件是否仍满足：原子写、单调合并、不回退、与 `version: 1`（版本不符视为空状态）及旧条目字段兼容？
 4. 降级触发条件是否被放宽（429 / 5xx / 网络错误必须仍不干预）？保缓存路径是否被破坏？
 5. `ports.resolve` 是否仍要求凭证？全部不可用时是否仍回落主用、让 Pi 报出真实错误？
 6. 是否同步了 `README.md` / `README.zh-CN.md` / `examples/README.md`（字段、默认值、文案）？
