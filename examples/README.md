@@ -30,7 +30,7 @@ cp examples/provider-chain.json ~/.pi/agent/provider-chain.json
 | `resetPattern` | - | 内置正则 | 从错误文本解析恢复时间；第 1/2 捕获组为日期/时间，第 3 组可选时区（`+08:00` / `+0800`） |
 | `defaultDegradeMs` | - | `3600000`（1h） | 解析不到恢复时间时的降级时长；超过 `maxDegradeMs` 时被钳制 |
 | `maxDegradeMs` | - | `2592000000`（30d） | 降级时长**硬上限**，同时钳制解析结果、默认时长与 `/chain degrade <时长>` |
-| `transcriptNotice` | - | `true` | 是否在转录里追加可见条目（前缀 `[chain]`，**不进模型上下文**） |
+| `transcriptNotice` | - | `true` | 是否在转录里追加可见条目（前缀 `[pi-provider-chain]`，**不进模型上下文**） |
 | `stateFile` | - | 未出现（默认 `~/.pi/agent/provider-chain-state.json`） | 跨进程共享的降级状态文件路径，支持 `~` |
 
 完整字段语义与默认值见仓库根目录 [README.zh-CN.md](../README.zh-CN.md#配置)（英文版见 [README.md](../README.md#configuration)）。

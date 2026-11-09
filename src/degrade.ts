@@ -102,17 +102,14 @@ export function clampDegradeMs(ms: number, maxDegradeMs: number): number {
 }
 
 /**
- * 时间格式化。
- * - `full`（默认）：本地化完整时间（提示文案里的「恢复时间」）
- * - `short`：`MM-DD HH:mm`（页脚状态，宽度敏感，不依赖 locale）
+ * 时间格式化：统一 `YYYY-MM-DD HH:mm`（本地时区，24 小时制）。
+ *
+ * 不依赖 locale（`toLocaleString()` 在不同环境长度不同），也不区分 full/short ——
+ * 页脚、notify、转录条目、`/chain status` 共用同一种时间写法。
  */
-export function formatClock(ts: number, style: "full" | "short" = "full"): string {
-	try {
-		if (style === "full") return new Date(ts).toLocaleString();
-		const d = new Date(ts);
-		const pad = (n: number) => String(n).padStart(2, "0");
-		return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-	} catch {
-		return String(ts);
-	}
+export function formatClock(ts: number): string {
+	const d = new Date(ts);
+	if (Number.isNaN(d.getTime())) return String(ts);
+	const pad = (n: number) => String(n).padStart(2, "0");
+	return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }

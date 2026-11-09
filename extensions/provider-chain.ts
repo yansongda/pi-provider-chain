@@ -7,7 +7,7 @@
  * - 只有额度类错误才降级；429 瞬时限流 / 5xx / 网络错误不干预，交回 Pi 自身重试
  * - 降级状态写入共享文件（跨 session、跨进程、跨前后台 subagent 生效）
  * - 两条触发路径：reason === "retry" 快路径；agent_before_settle 兜底路径
- * - 页脚常驻：档位 0 显示 `→ <主用目标>`；降级中显示 `↓ <当前目标> · <最早恢复时间> 恢复 <provider>`
+ * - 页脚常驻：档位 0 显示 `⓪ <目标>`；降级中显示 `① <当前目标> · <恢复方> <时间> 恢复`（时间统一 `YYYY-MM-DD HH:mm`）
  *
  * 本文件只做「装配」：注册虚拟模型 / 事件 / 命令 / 渲染器，并把 pi 的 `ctx` 适配成 router 端口。
  * 档位推进、路由决策、恢复判定、页脚与命令输出在 `../src/router.ts`；常量与文案在 `../src/constants.ts`。
@@ -25,7 +25,7 @@ import { refOf, refText, type ModelRef } from "../src/model-ref.ts";
 import { createRouter, type RouterPorts } from "../src/router.ts";
 import { clearEntry, readState, upsertEntry } from "../src/state.ts";
 import { findFailingAssistant, locateEntryIdFor, type RouteEntryData } from "../src/transcript.ts";
-import { degradeLine, entryErrorDetail, entryErrorText, entryNoDataText, entryRecoverText } from "../src/ui.ts";
+import { degradeLine, entryErrorDetail, entryErrorText, entryNoDataText, recoverNotice } from "../src/ui.ts";
 
 // --- 类型别名（宿主注册表 / 思考档位） ---
 type ThinkingLevels = NonNullable<VirtualModelDefinition["thinkingLevels"]>;
@@ -41,15 +41,16 @@ export default function (pi: ExtensionAPI) {
 	pi.registerEntryRenderer<RouteEntryData>(ENTRY_TYPE, (entry, options, theme) => {
 		const data = entry.data;
 		const box = new Box(1, 1, (text) => theme.bg(THEME_COLOR.CUSTOM_MESSAGE_BG, text));
+		// 前缀统一加在渲染层：所有条目（含无数据）同一出口，模板本身不带前缀
+		const prefix = theme.fg(THEME_COLOR.ACCENT, ENTRY_PREFIX);
 		if (!data) {
-			box.addChild(new Text(theme.fg(THEME_COLOR.DIM, entryNoDataText()), 0, 0));
+			box.addChild(new Text(`${prefix} ${theme.fg(THEME_COLOR.DIM, entryNoDataText())}`, 0, 0));
 			return box;
 		}
-		const prefix = theme.fg(THEME_COLOR.ACCENT, ENTRY_PREFIX);
 		if (data.kind === ENTRY_KIND.RECOVER) {
-			box.addChild(new Text(`${prefix} ${theme.fg(THEME_COLOR.SUCCESS, entryRecoverText(data.provider))}`, 0, 0));
+			box.addChild(new Text(`${prefix} ${theme.fg(THEME_COLOR.SUCCESS, recoverNotice(data.provider))}`, 0, 0));
 		} else if (data.kind === ENTRY_KIND.ERROR) {
-			box.addChild(new Text(`${prefix} ${theme.fg(THEME_COLOR.WARNING, entryErrorText())}`, 0, 0));
+			box.addChild(new Text(`${prefix} ${theme.fg(THEME_COLOR.WARNING, entryErrorText(data.provider))}`, 0, 0));
 			if (options.expanded) box.addChild(new Text(theme.fg(THEME_COLOR.DIM, entryErrorDetail(data.message)), 0, 0));
 		} else {
 			// 旧条目没有 `from`（受限 provider）→ 回落状态键，历史会话也能渲染；文案与 notify 同一句
@@ -57,6 +58,7 @@ export default function (pi: ExtensionAPI) {
 				trigger: data.trigger,
 				provider: data.from ?? data.provider,
 				reason: data.reason,
+				level: data.level,
 				to: data.to,
 				until: data.until,
 			});
@@ -249,19 +251,20 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			const router = routerFor(ctx);
-			const lines: string[] =
-				parsed.action === "reset"
-					? [router.reset(target)]
-					: parsed.action === "degrade"
-						? [router.manualDegrade(target, parsed.durationMs)]
-						: router.statusLines({
-								selection: selection ? `${selection.provider}/${selection.id}` : undefined,
-								target,
-								unknown: parsed.unknown,
-							});
+			let outcome: { text: string; kind: NotifyKind };
+			if (parsed.action === "reset") {
+				outcome = router.reset(target);
+			} else if (parsed.action === "degrade") {
+				outcome = router.manualDegrade(target, parsed.durationMs);
+			} else {
+				const selectionText = selection ? `${selection.provider}/${selection.id}` : undefined;
+				outcome = {
+					text: router.statusLines({ selection: selectionText, unknown: parsed.unknown }).join("\n"),
+					kind: NOTIFY_KIND.INFO,
+				};
+			}
 			// 手动降级的成功反馈由降级通知承担 → 回显可能为空，不弹空提示（status 的空行分隔不受影响）
-			const text = lines.join("\n");
-			if (text.trim()) notifyUi(ctx, text, NOTIFY_KIND.INFO);
+			if (outcome.text.trim()) notifyUi(ctx, outcome.text, outcome.kind);
 		},
 	});
 }

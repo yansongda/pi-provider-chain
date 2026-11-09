@@ -126,13 +126,13 @@ function normalizeInput(value: unknown): ModelInputKind[] | undefined {
 }
 
 export function loadConfig(path: string = defaultConfigPath(), dir: string = agentDir()): LoadResult {
-	if (!existsSync(path)) return { ok: false, error: `配置文件不存在：${path}` };
+	if (!existsSync(path)) return { ok: false, error: `配置文件不存在 ${path}` };
 
 	let raw: RawRoutingConfig | null;
 	try {
 		raw = JSON.parse(readFileSync(path, "utf8")) as RawRoutingConfig;
 	} catch (err) {
-		return { ok: false, error: `配置文件解析失败：${err instanceof Error ? err.message : String(err)}` };
+		return { ok: false, error: `配置文件解析失败 ${err instanceof Error ? err.message : String(err)}` };
 	}
 
 	const virtualProvider = typeof raw?.virtualProvider === "string" ? raw.virtualProvider.trim() : "";
@@ -145,8 +145,8 @@ export function loadConfig(path: string = defaultConfigPath(), dir: string = age
 		const id = typeof entry?.id === "string" ? entry.id.trim() : "";
 		const rawChain = Array.isArray(entry?.chain) ? entry.chain : [];
 		const primaryRef = parseRef(String(rawChain[0] ?? ""));
-		if (!id || !primaryRef) return { ok: false, error: `models[] 条目缺少 id 或合法 chain[0]：${JSON.stringify(entry)}` };
-		if (seenIds.has(id)) return { ok: false, error: `models[] 存在重复 id：${id}` };
+		if (!id || !primaryRef) return { ok: false, error: `models[] 条目缺少 id 或合法 chain[0] ${JSON.stringify(entry)}` };
+		if (seenIds.has(id)) return { ok: false, error: `models[] 存在重复 id ${id}` };
 		seenIds.add(id);
 		const chain: [ModelRef, ...ModelRef[]] = [primaryRef];
 		// 链长建议 ≤ 5（业界网关默认上限）：链过长会让一次故障在多个 provider 上依次付出失败代价

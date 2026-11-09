@@ -96,12 +96,12 @@ export interface Router<M extends PhysicalModel, TLevel extends string> {
 	reviewFailure(model: LoadedModel, failure: FailureInfo, snapshot?: StateSnapshot): DegradeEntry | undefined;
 	notePrimarySuccess(provider: string): void;
 	refreshStatus(): void;
-	/** `/chain status` 的完整输出行（头部 + 各模型 + 过期提示）。 */
-	statusLines(input: { selection?: string; target: LoadedModel; unknown?: string }): string[];
-	/** 手动降级到第 1 档；返回回显行（状态已变化时为空串，反馈由降级通知承担）。 */
-	manualDegrade(model: LoadedModel, durationMs?: number): string;
-	/** 清除降级状态，返回给用户的一行结果。 */
-	reset(model: LoadedModel): string;
+	/** `/chain status` 的完整输出行（头部 + 各模型）。 */
+	statusLines(input: { selection?: string; unknown?: string }): string[];
+	/** 手动降级到第 1 档；返回回显行与通知级别（状态已变化时为空串，反馈由降级通知承担）。 */
+	manualDegrade(model: LoadedModel, durationMs?: number): { text: string; kind: NotifyKind };
+	/** 清除降级状态，返回给用户的一行结果与通知级别。 */
+	reset(model: LoadedModel): { text: string; kind: NotifyKind };
 }
 
 export function createRouter<M extends PhysicalModel, TLevel extends string>(
@@ -145,7 +145,7 @@ export function createRouter<M extends PhysicalModel, TLevel extends string>(
 
 	/**
 	 * 重算页脚：常驻显示**当前选中模型**的目标物理模型。
-	 * 档位 0 → `→ <chain[0]>`；档位 ≥ 1 → `↓ <chain[level]>` 并追加「最早恢复时间 + 该时间所属 provider」。
+	 * 档位 0 → `⓪ <chain[0]>`；档位 ≥ 1 → `① <chain[level]>` 并追加「恢复方 + 该时间所属 provider」。
 	 * 选中非本扩展管理的模型时清空页脚（其它模型的降级由 `/chain status` 全量展示）。
 	 */
 	function refreshStatus(now: number = ports.now()): void {
@@ -163,8 +163,13 @@ export function createRouter<M extends PhysicalModel, TLevel extends string>(
 		const recovery = earliestRecovery(model, state, now);
 		ports.setStatus(
 			level > 0 && recovery
-				? footerDegraded({ target: refText(model.chain[level]), provider: recovery.provider, until: recovery.until })
-				: footerActive(refText(model.chain[0])),
+				? footerDegraded({
+					level,
+					target: refText(model.chain[level]),
+					provider: recovery.provider,
+					until: recovery.until,
+				})
+				: footerActive(refText(model.chain[0]), level),
 		);
 	}
 
@@ -188,6 +193,7 @@ export function createRouter<M extends PhysicalModel, TLevel extends string>(
 					trigger: info.trigger,
 					provider: info.from,
 					reason: entry.reason,
+					level: entry.level,
 					to,
 					until: entry.until,
 					writeFailed: !!applied.writeError,
@@ -315,7 +321,7 @@ export function createRouter<M extends PhysicalModel, TLevel extends string>(
 		ports.append({ kind: ENTRY_KIND.RECOVER, provider });
 	}
 
-	function statusLines(input: { selection?: string; target: LoadedModel; unknown?: string }): string[] {
+	function statusLines(input: { selection?: string; unknown?: string }): string[] {
 		const now = ports.now();
 		const state = ports.readState();
 		/** 仍处于窗口内的条目（已过期条目由 `describeModel` 当作 stale 展示）。 */
@@ -339,14 +345,12 @@ export function createRouter<M extends PhysicalModel, TLevel extends string>(
 				}),
 			);
 		}
-		const target = state.degraded[input.target.stateKey];
-		if (target && target.until <= now) lines.push("", MESSAGES.staleHint);
 		return lines;
 	}
 
-	function manualDegrade(model: LoadedModel, durationMs?: number): string {
+	function manualDegrade(model: LoadedModel, durationMs?: number): { text: string; kind: NotifyKind } {
 		const ref = `${cfg.virtualProvider}/${model.config.id}`;
-		if (model.chain.length < 2) return MESSAGES.noSpareChain(ref);
+		if (model.chain.length < 2) return { text: MESSAGES.noSpareChain(ref), kind: NOTIFY_KIND.WARNING };
 
 		const ms = clampDegradeMs(durationMs ?? cfg.defaultDegradeMs, cfg.maxDegradeMs);
 		const { entry, changed } = applyDegrade(model, {
@@ -359,18 +363,21 @@ export function createRouter<M extends PhysicalModel, TLevel extends string>(
 			trigger: DEGRADE_TRIGGER.MANUAL,
 		});
 		// 状态真的变了 → ⚠ 通知 + 转录条目已把结果说清，命令不再重复回显
-		if (changed) return "";
-		// 没变化 = 盘上已有同等/更深的活跃档位（单调合并保留它）→ 如实回显实际生效的档位与时间
+		if (changed) return { text: "", kind: NOTIFY_KIND.INFO };
+		// 没变化 = 盘上已有更深的活跃档位（单调合并保留它）→ 如实回显实际生效的档位与时间
 		const current = model.chain[clampLevel(entry.level, model.chain.length)];
-		return deeperLevelKeptLine({ level: entry.level, to: refText(current), until: entry.until });
+		return {
+			text: deeperLevelKeptLine({ level: entry.level, to: refText(current), until: entry.until }),
+			kind: NOTIFY_KIND.INFO,
+		};
 	}
 
-	function reset(model: LoadedModel): string {
+	function reset(model: LoadedModel): { text: string; kind: NotifyKind } {
 		const cleared = ports.clear(model.stateKey);
 		refreshStatus();
 		return cleared.ok
-			? MESSAGES.cleared(model.stateKey)
-			: MESSAGES.clearFailed(model.stateKey, cleared.error ?? MESSAGES.unknownError);
+			? { text: MESSAGES.cleared(model.stateKey), kind: NOTIFY_KIND.INFO }
+			: { text: MESSAGES.clearFailed(model.stateKey, cleared.error ?? MESSAGES.unknownError), kind: NOTIFY_KIND.WARNING };
 	}
 
 	return { route, reviewFailure, notePrimarySuccess, refreshStatus, statusLines, manualDegrade, reset };

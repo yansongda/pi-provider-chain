@@ -67,7 +67,7 @@ A→E 依次执行，前一步给出可用模型就返回：
 要点：
 
 - **可用 = 存在且有凭证**：`ports.resolve` 内部为 `ctx.modelRegistry.find()` + `hasConfiguredAuth()`；一次请求内每个 `provider/id` 只查一次。
-- `route()` 内任何异常都会先尝试回落主用，并在能回落时追加一条 `[chain] error` 转录条目（**不进模型上下文**），避免真实异常被掩盖。
+- `route()` 内任何异常都会先尝试回落主用，并在能回落时追加一条 `[pi-provider-chain] error` 转录条目（**不进模型上下文**），避免真实异常被掩盖。
 - 宿主传入的 `reason` 有四种：`user` / `continuation` / `retry` / `direct`；只有 `retry` 会触发 A 段。
 
 ### 3.3 两条降级触发路径
@@ -83,11 +83,24 @@ A→E 依次执行，前一步给出可用模型就返回：
 
 `session_start` 与 `model_select` 事件只负责刷新页脚（`refreshStatus`）。
 
-页脚文案规则：档位 0 → `→ <chain[0]>`；档位 ≥ 1 → `↓ <chain[level]> · <MM-DD HH:mm> 恢复 <provider>`。
+页脚文案规则：档位 0 → `⓪ <chain[0]>`；档位 ≥ 1 → `① <chain[level]> · <恢复方> <YYYY-MM-DD HH:mm> 恢复`。
 时间与 `provider` 取自**链路内仍活跃的降级条目中 `until` 最小者**（并列取链路靠前者，`earliestRecovery`）：它不是本模型自己的 `stateKey` 条目
 ——因为链路其它成员只有在「它也是别的虚拟模型的 `chain[0]`」时才有条目，而页脚要回答「链路上谁先恢复」。
-回到主用的时间始终取决于本模型 `stateKey`（即 `chain[0]`）的窗口，两者仅在上述跨模型共享 provider 的情形下才会不同。
+回到档位 0 的时间始终取决于本模型 `stateKey`（即 `chain[0]`）的窗口，两者仅在上述跨模型共享 provider 的情形下才会不同。
 页脚不使用 `⚠`（警示语义保留在 notify 与转录条目，那里是「事件」）。
+
+### 3.5 用户文案规则
+
+| 规则 | 内容 |
+|---|---|
+| 档位 | 统一 `⓪①②…⑨`（≥10 直接数字），不再出现 `level=N` 或把 `→` / `↓` 当档位前缀 |
+| 时间 | 统一 `YYYY-MM-DD HH:mm`（`formatClock` 单参数、不依赖 locale）；notify、条目、页脚、`/chain status` 共用 |
+| 分隔 | 元信息 ` · `；链路成员 ` → `；附加说明 `；` |
+| 事件句 | 降级 `⚠ <受限方> <原因> → <徽标> <目标> · <时间> 恢复`；恢复 `✓ 已恢复到 ⓪ <provider>`；notify 与转录条目同一句 |
+| 条目前缀 | `[pi-provider-chain]`，由渲染器统一加（模板本身不带前缀） |
+| 回到档位 0 | 一律写 `回到 ⓪ <provider>`；只有 `/chain status` 的主用行与页脚写完整 `⓪ <provider/id>` |
+| 过期提示 | 只在模型状态行出现一次（`staleHint` 已删除） |
+| 通知级别 | 降级/失败类 `warning`，状态查询与成功清除 `info`，未启用/无虚拟模型 `error` |
 
 ## 4. 降级语义不变量
 

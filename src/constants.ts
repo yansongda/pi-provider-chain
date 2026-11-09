@@ -18,12 +18,18 @@ export const STATUS_KEY = EXTENSION_NAME;
 export const ENTRY_TYPE = EXTENSION_NAME;
 export const COMMAND_NAME = "chain";
 export const COMMAND_USAGE = `/${COMMAND_NAME} [status | degrade [时长] | reset | reload]`;
-/** 转录内可见条目的前缀（与命令同名，便于对照）。 */
-export const ENTRY_PREFIX = `[${COMMAND_NAME}]`;
-/** 启动/未启用类提示前缀。 */
-export const NOTIFY_PREFIX = `[${EXTENSION_NAME}]`;
-/** 抛给宿主的错误前缀。 */
-export const ERROR_PREFIX = `${EXTENSION_NAME}:`;
+/** 用户文案里的来源前缀（包名；转录条目与「未启用」提示共用）。 */
+export const CHAIN_PREFIX = "[pi-provider-chain]";
+/** 转录内可见条目的前缀（与来源前缀同字，便于对照）。 */
+export const ENTRY_PREFIX = CHAIN_PREFIX;
+
+/**
+ * 档位徽标：0–9 用圈码，≥10 直接数字（链长建议 ≤5，这里只做防御）。
+ * 页脚、`/chain status`、降级/恢复文案一律用它表达「链路档位」，不再出现 `level=N`。
+ */
+export const LEVEL_BADGES = ["⓪", "①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨"] as const;
+/** 档位 0（链路第一个 provider）的徽标。 */
+export const PRIMARY_BADGE = LEVEL_BADGES[0];
 
 // ---------------------------------------------------------------------------
 // 路径与文件名
@@ -124,76 +130,77 @@ export const MANUAL_DEGRADE_NOTE = "手动 /chain degrade";
 // 用户文案模板（一句话 = 一个模板）
 // ---------------------------------------------------------------------------
 
-/** 状态文件写入失败时追加到降级提示后的说明。 */
-export const WRITE_FAILED_SUFFIX = "（状态文件写入失败，本次降级仅本进程生效）";
+/** 状态文件写入失败时追加到降级提示后的说明（仅 notify 传，转录条目不带）。 */
+export const WRITE_FAILED_SUFFIX = "；状态写入失败，仅本进程生效";
 
 export const MESSAGES = {
 	// --- 启动 / 未启用 ---
 	/** 配置加载失败：扩展未启用（notify，error）。 */
-	disabled: (reason: string) => `${NOTIFY_PREFIX} 未启用：${reason}`,
+	disabled: (reason: string) => `${CHAIN_PREFIX} 未启用（${reason}）`,
 	commandDescription: `虚拟模型路由：${COMMAND_USAGE}`,
-	commandDescriptionDisabled: "虚拟模型路由（未启用：配置加载失败）",
+	commandDescriptionDisabled: "虚拟模型路由（未启用）",
 
 	// --- 运行时：降级 / 恢复 ---
 	/** 降级文案：notify 与转录条目共用同一句（`writeFailed` 仅 notify 传，追加「仅本进程生效」说明）。 */
-	quotaLimited: (p: { provider: string; reason: string; to: string; untilText: string; writeFailed?: boolean }) =>
-		`⚠ ${p.provider} 额度受限（${p.reason}）→ 已切换 ${p.to}，恢复时间 ${p.untilText}${p.writeFailed ? WRITE_FAILED_SUFFIX : ""}`,
+	quotaLimited: (p: { provider: string; reason: string; badge: string; to: string; untilText: string; writeFailed?: boolean }) =>
+		`⚠ ${p.provider} 额度受限（${p.reason}）→ ${p.badge} ${p.to} · ${p.untilText} 恢复${p.writeFailed ? WRITE_FAILED_SUFFIX : ""}`,
 	/** 手动降级文案（`/chain degrade`）：同样被 notify 与转录条目共用；没有「受限原因」可述，故不套用上面那句。 */
-	manualDegradeNotice: (p: { provider: string; to: string; untilText: string; writeFailed?: boolean }) =>
-		`⚠ 手动降级 ${p.provider} → ${p.to}，恢复时间 ${p.untilText}${p.writeFailed ? WRITE_FAILED_SUFFIX : ""}`,
-	recovered: (provider: string) => `✅ ${provider} 已恢复，后续请求回到主用`,
-	/** 路由异常（已回落主用）的转录条目文案。 */
-	routeError: "⚠ 路由异常（已回落主用）",
+	manualDegradeNotice: (p: { provider: string; badge: string; to: string; untilText: string; writeFailed?: boolean }) =>
+		`⚠ 手动降级 ${p.provider} → ${p.badge} ${p.to} · ${p.untilText} 恢复${p.writeFailed ? WRITE_FAILED_SUFFIX : ""}`,
+	/** 恢复文案：notify 与转录条目共用同一句（`⓪` 后的 provider 是恢复方）。 */
+	recovered: (provider: string) => `✓ 已恢复到 ${PRIMARY_BADGE} ${provider}`,
+	/** 路由异常（已回到档位 0）的转录条目文案；旧条目可能没有 provider，此时省略它。 */
+	routeError: (provider?: string) =>
+		provider ? `⚠ 路由异常（已回到 ${PRIMARY_BADGE} ${provider}）` : `⚠ 路由异常（已回到 ${PRIMARY_BADGE}）`,
 	/** 全链路不可用且主用也无法回落时的抛错文案。 */
-	unavailable: (primaryRef: string) => `${ERROR_PREFIX} ${primaryRef} 与全部后备链路均不可用`,
+	unavailable: (primaryRef: string) => `${CHAIN_PREFIX} ${primaryRef} 与全部后备链路均不可用`,
 
 	// --- 转录条目 ---
-	entryRecover: (provider: string) => `✅ 已恢复主用 ${provider}`,
-	entryNoData: `${ENTRY_PREFIX} (no data)`,
+	entryNoData: "（无数据）",
 
 	// --- 页脚（常驻显示当前选中模型的目标物理模型） ---
-	/** 档位 0：正在用链路第一个 provider（`→`）。 */
-	footerActive: (target: string) => `→ ${target}`,
+	/** 档位 0 / 降级都用「徽标 + 目标」；`badge` 由 `levelBadge` 选择。 */
+	footerActive: (p: { badge: string; target: string }) => `${p.badge} ${p.target}`,
 	/**
-	 * 降级中（档位 ≥ 1）：`↓ <当前目标> · <最早恢复时间> 恢复 <该时间所属 provider>`。
-	 * 时间与 `provider` 由 router 的 `earliestRecovery` 给出（链路内活跃条目里最早者）；页脚不再用 `⚠`，
+	 * 降级中（档位 ≥ 1）：`<徽标> <当前目标> · <恢复方> <恢复时间> 恢复`。
+	 * 恢复时间与 provider 由 router 的 `earliestRecovery` 给出（链路内活跃条目里最早者）；页脚不用 `⚠`，
 	 * 警示语义保留在 notify 与转录条目（那里是「事件」）。
 	 */
-	footerDegraded: (p: { target: string; provider: string; untilText: string }) =>
-		`↓ ${p.target} · ${p.untilText} 恢复 ${p.provider}`,
+	footerDegraded: (p: { badge: string; target: string; provider: string; untilText: string }) =>
+		`${p.badge} ${p.target} · ${p.provider} ${p.untilText} 恢复`,
 
 	// --- /chain status ---
 	headerCurrent: (ref: string) => `当前: ${ref}`,
 	headerConfig: (path: string) => `配置: ${path}`,
 	headerStateFile: (path: string) => `状态文件: ${path}`,
-	notSelected: "(未选择)",
+	notSelected: "（未选择）",
 	describeLink: (chainText: string) => `  链路: ${chainText}`,
 	describeState: (status: string) => `  状态: ${status}`,
-	describeReason: (p: { reason: string; untilText: string }) => `  原因: ${p.reason}  ·  恢复: ${p.untilText}`,
+	describeReason: (p: { reason: string; untilText: string }) => `  原因: ${p.reason} · ${p.untilText} 恢复`,
 	/** 链路分隔符（`describeLink` 用）。 */
-	chainSeparator: "  →  ",
-	stateDegraded: (p: { level: number; ref: string }) => `降级 level=${p.level}（${p.ref}）`,
-	stateExpired: "已过期（下一请求尝试主用）",
-	statePrimary: "主用",
-	staleHint: "提示: 状态已过期，下一请求会自动尝试主用",
+	chainSeparator: " → ",
+	/** 档位 0 与降级共用：`⓪ <目标>` / `① <目标>`。 */
+	stateAt: (badge: string, ref: string) => `${badge} ${ref}`,
+	/** 窗口已过期（尚未被下一条主用成功响应确认）：回到档位 0 的目标用 provider 标识。 */
+	stateExpired: (primary: string) => `已过期（下一请求回到 ${PRIMARY_BADGE} ${primary}）`,
 
 	// --- /chain degrade | reset ---
-	reloading: `重新加载 ${EXTENSION_NAME} 扩展与配置…`,
-	noVirtualModel: "配置中没有可用的虚拟模型",
-	noSpareChain: (model: string) => `${model} 未配置后备链路，无法切换`,
-	/** `/chain degrade`：状态未变化（盘上已有同等/更深档位）时的回显；状态已变化时回显为空（反馈由降级通知承担）。 */
-	deeperLevelKept: (p: { level: number; to: string; untilText: string }) =>
-		`已存在降级档位，保持 level=${p.level}（${p.to}），至 ${p.untilText}`,
-	cleared: (provider: string) => `已清除 ${provider} 的降级状态，下一请求尝试主用`,
-	clearFailed: (provider: string, error: string) => `清除 ${provider} 的降级状态失败：${error}`,
+	reloading: "重新加载 pi-provider-chain 扩展与配置…",
+	noVirtualModel: "⚠ 配置中没有可用的虚拟模型",
+	noSpareChain: (model: string) => `⚠ ${model} 未配置后备链路，无法切换`,
+	/** `/chain degrade`：状态未变化（盘上已有更深档位）时的回显；状态已变化时回显为空（反馈由降级通知承担）。 */
+	deeperLevelKept: (p: { badge: string; to: string; untilText: string }) =>
+		`⚠ 已有更深降级，保持 ${p.badge} ${p.to} · ${p.untilText} 恢复`,
+	cleared: (provider: string) => `✓ 已清除 ${provider} 的降级状态，下一请求回到 ${PRIMARY_BADGE} ${provider}`,
+	clearFailed: (provider: string, error: string) => `⚠ 清除 ${provider} 的降级状态失败: ${error}`,
 	unknownError: "未知错误",
-	unknownSubcommand: (unknown: string) => `未知子命令：${unknown}（可用：${COMMAND_USAGE}）`,
+	unknownSubcommand: (unknown: string) => `未知子命令: ${unknown}（可用: ${COMMAND_USAGE}）`,
 } as const;
 
 /** `/chain` 子命令补全项（value / label / description 均为用户可见文案）。 */
 export const COMMAND_COMPLETIONS = [
 	{ value: "status", label: "status", description: "显示当前选中模型、链路与降级状态" },
-	{ value: "degrade 30m", label: "degrade [时长]", description: "手动降级到第 1 档备用（30m / 2h / 1d）" },
-	{ value: "reset", label: "reset", description: "清除当前 provider 的降级状态，下一请求尝试主用" },
+	{ value: "degrade 30m", label: "degrade [时长]", description: "手动降级到 ①（第一后备）（30m / 2h / 1d）" },
+	{ value: "reset", label: "reset", description: "清除当前 provider 的降级状态，下一请求回到 ⓪" },
 	{ value: "reload", label: "reload", description: "重新加载扩展与配置" },
 ] as const;

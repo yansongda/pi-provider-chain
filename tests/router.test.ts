@@ -177,7 +177,7 @@ test("retry 命中额度错误：推进档位 + 写状态 + notify/转录/页脚
 	assert.equal(entry.trigger, DEGRADE_TRIGGER.RETRY);
 	assert.equal(entry.from, "volcengine", "受限 provider = 失败模型所属 provider");
 	assert.ok(h.notifications[0]?.message.startsWith("⚠ volcengine 额度受限"), "notify 与条目同一句、同一个受限 provider");
-	assert.equal(h.statuses.at(-1)?.startsWith("↓ workbuddy/deepseek-v4.1-flash · "), true, "页脚显示降级后的目标 provider");
+	assert.equal(h.statuses.at(-1)?.startsWith("① workbuddy/deepseek-v4.1-flash · "), true, "页脚显示降级后的目标 provider");
 	assert.equal(h.calls.reads, 2, "route 读一次状态 + refreshStatus 读一次（推进复用同一快照）");
 });
 
@@ -239,18 +239,19 @@ test("端口自身故障：回落主用并留一条 error 转录条目", () => {
 	assert.ok(entry.message.includes("state port down"));
 });
 
-test("refreshStatus：档位 0 显示 → 目标；降级显示 ↓ 目标 + 恢复时间与 provider", () => {
+test("refreshStatus：档位 0 显示 ⓪ 目标；降级显示 ① 目标 + 恢复时间与 provider", () => {
 	const active = makeHarness();
 	active.router.refreshStatus();
-	assert.equal(active.statuses.at(-1), "→ volcengine/deepseek-v4.1-flash", "用链路第一个 provider → 右箭头");
+	assert.equal(active.statuses.at(-1), "⓪ volcengine/deepseek-v4.1-flash", "用链路第一个 provider 的徽标 + 目标");
 
 	const degraded = makeHarness({
 		state: { volcengine: { level: 1, until: NOW + 3_600_000, reason: "q", at: NOW } },
 	});
 	degraded.router.refreshStatus();
 	const text = degraded.statuses.at(-1) ?? "";
-	assert.ok(text.startsWith("↓ workbuddy/deepseek-v4.1-flash · "), text);
-	assert.ok(text.endsWith(" 恢复 volcengine"), text);
+	assert.ok(text.startsWith("① workbuddy/deepseek-v4.1-flash · "), text);
+	assert.ok(text.includes("volcengine"), text);
+	assert.ok(text.endsWith(" 恢复"), text);
 });
 
 test("refreshStatus：链路内多条活跃条目 → 取最早恢复的那条并点名其 provider", () => {
@@ -267,8 +268,9 @@ test("refreshStatus：链路内多条活跃条目 → 取最早恢复的那条�
 	});
 	h.router.refreshStatus();
 	const text = h.statuses.at(-1) ?? "";
-	assert.ok(text.startsWith("↓ glm/c · "), text);
-	assert.ok(text.endsWith(" 恢复 workbuddy"), "取最早的 workbuddy，而不是本模型的 volcengine");
+	assert.ok(text.startsWith("② glm/c · "), text);
+	assert.ok(text.includes("workbuddy"), "取最早的 workbuddy，而不是本模型的 volcengine");
+	assert.ok(text.endsWith(" 恢复"), text);
 
 	// 并列时取链路靠前者
 	const tie = makeHarness({
@@ -282,7 +284,7 @@ test("refreshStatus：链路内多条活跃条目 → 取最早恢复的那条�
 		},
 	});
 	tie.router.refreshStatus();
-	assert.ok((tie.statuses.at(-1) ?? "").endsWith(" 恢复 volcengine"), tie.statuses.at(-1));
+	assert.ok((tie.statuses.at(-1) ?? "").includes("volcengine"), tie.statuses.at(-1));
 });
 
 test("refreshStatus：选中非本扩展模型（物理模型 / 未配置 id）时清空页脚", () => {
@@ -310,12 +312,13 @@ test("refreshStatus：其它模型的降级不影响当前选中模型的页脚"
 		state: { openrouter: { level: 1, until: NOW + 3_600_000, reason: "q", at: NOW } },
 	});
 	h.router.refreshStatus();
-	assert.equal(h.statuses.at(-1), "→ volcengine/a", "只反映当前选中模型（a）的档位");
+	assert.equal(h.statuses.at(-1), "⓪ volcengine/a", "只反映当前选中模型（a）的档位");
 
 	h.setSelection({ provider: "yansongda", id: "b" });
 	h.router.refreshStatus();
-	assert.ok((h.statuses.at(-1) ?? "").startsWith("↓ glm/b · "), h.statuses.at(-1));
-	assert.ok((h.statuses.at(-1) ?? "").endsWith(" 恢复 openrouter"), h.statuses.at(-1));
+	assert.ok((h.statuses.at(-1) ?? "").startsWith("① glm/b · "), h.statuses.at(-1));
+	assert.ok((h.statuses.at(-1) ?? "").includes("openrouter"), h.statuses.at(-1));
+	assert.ok((h.statuses.at(-1) ?? "").endsWith(" 恢复"), h.statuses.at(-1));
 });
 
 test("refreshStatus：每次调用只读一次状态", () => {
@@ -334,7 +337,7 @@ test("notePrimarySuccess：过期降级后的首次主用成功 → 墓碑 + 提
 	assert.equal(h.notifications.length, 1);
 	assert.equal(h.notifications[0]?.kind, NOTIFY_KIND.INFO);
 	assert.ok(h.notifications[0]?.message.includes("已恢复"));
-	assert.equal(h.statuses.at(-1), "→ volcengine/deepseek-v4.1-flash", "页脚回到主用目标");
+	assert.equal(h.statuses.at(-1), "⓪ volcengine/deepseek-v4.1-flash", "页脚回到档位 0 的目标");
 	assert.equal(h.entries.at(-1)?.kind, ENTRY_KIND.RECOVER);
 
 	h.router.notePrimarySuccess("volcengine");
@@ -402,8 +405,9 @@ test("状态文件写入失败：提示里带上「仅本进程生效」，但�
 
 test("manualDegrade：写入 level=1 / reason=manual，回显留给降级通知", () => {
 	const h = makeHarness();
-	const line = h.router.manualDegrade(h.models[0]!, 1_800_000);
-	assert.equal(line, "", "状态已变化 → 不再重复回显（⚠ 通知已说明）");
+	const outcome = h.router.manualDegrade(h.models[0]!, 1_800_000);
+	assert.equal(outcome.text, "", "状态已变化 → 不再重复回显（⚠ 通知已说明）");
+	assert.equal(outcome.kind, NOTIFY_KIND.INFO);
 	assert.equal(h.state.degraded.volcengine?.level, 1);
 	assert.equal(h.state.degraded.volcengine?.reason, DEGRADE_REASON.MANUAL);
 	assert.equal(h.state.degraded.volcengine?.until, NOW + 1_800_000);
@@ -413,7 +417,7 @@ test("manualDegrade：写入 level=1 / reason=manual，回显留给降级通知"
 	assert.equal(entry.trigger, DEGRADE_TRIGGER.MANUAL);
 	assert.equal(entry.from, "volcengine", "手动降级的受限方 = 状态键所属 provider");
 	assert.equal(
-		h.notifications.at(-1)?.message.startsWith("⚠ 手动降级 volcengine → workbuddy/deepseek-v4.1-flash，恢复时间"),
+		h.notifications.at(-1)?.message.includes("⚠ 手动降级 volcengine → ① workbuddy/deepseek-v4.1-flash"),
 		true,
 		"notify 走手动文案，不再出现「额度受限（manual）」",
 	);
@@ -421,8 +425,9 @@ test("manualDegrade：写入 level=1 / reason=manual，回显留给降级通知"
 
 test("manualDegrade：未配置后备链路时只返回提示，不写状态", () => {
 	const h = makeHarness({ chain: ["volcengine/a"] });
-	const line = h.router.manualDegrade(h.models[0]!, 1_800_000);
-	assert.ok(line.includes("未配置后备链路"));
+	const outcome = h.router.manualDegrade(h.models[0]!, 1_800_000);
+	assert.ok(outcome.text.includes("未配置后备链路"));
+	assert.equal(outcome.kind, NOTIFY_KIND.WARNING, "无后备 → warning");
 	assert.equal(h.calls.upserts, 0);
 });
 
@@ -432,33 +437,33 @@ test("manualDegrade：盘上已有更深的活跃档位 → 保持它并如实�
 		chain: ["volcengine/a", "workbuddy/a", "glm/a"],
 		state: { volcengine: { level: 2, until: activeUntil, reason: "AccountQuotaExceeded", at: NOW } },
 	});
-	const line = h.router.manualDegrade(h.models[0]!, 1_800_000);
-	assert.ok(line.includes("保持 level=2"), line);
-	assert.ok(line.includes("glm/a"), line);
+	const outcome = h.router.manualDegrade(h.models[0]!, 1_800_000);
+	assert.ok(outcome.text.includes("保持 ② glm/a"), outcome.text);
 	assert.equal(h.state.degraded.volcengine?.level, 2);
 	assert.equal(h.state.degraded.volcengine?.until, activeUntil, "不覆盖盘上更深的档位与恢复时间");
 });
 
 test("manualDegrade：盘上已有完全相同条目 → 回显实际档位（不再静默）", () => {
 	const h = makeHarness();
-	assert.equal(h.router.manualDegrade(h.models[0]!, 1_800_000), "", "首次执行：状态变化 → 无回显");
+	assert.equal(h.router.manualDegrade(h.models[0]!, 1_800_000).text, "", "首次执行：状态变化 → 无回显");
 	const again = h.router.manualDegrade(h.models[0]!, 1_800_000);
-	assert.ok(again.includes("已存在降级档位"), again);
-	assert.ok(again.includes("保持 level=1"), again);
-	assert.ok(again.includes("workbuddy/deepseek-v4.1-flash"), again);
+	assert.ok(again.text.includes("已有更深降级"), again.text);
+	assert.ok(again.text.includes("保持 ① workbuddy/deepseek-v4.1-flash"), again.text);
 	assert.equal(h.notifications.length, 1, "未变化 → 不重复发降级通知");
 	assert.equal(h.entries.length, 1, "未变化 → 不重复写转录条目");
 });
 
-test("reset：清除状态 + 刷新页脚；不存在也视为成功", () => {
+test("reset：清除状态 + 刷新页脚；不存在也视为成功；失败时 warning", () => {
 	const h = makeHarness({ state: { volcengine: { level: 1, until: NOW + 3_600_000, reason: "q", at: NOW } } });
-	assert.ok(h.router.reset(h.models[0]!).includes("已清除 volcengine"));
+	const cleared = h.router.reset(h.models[0]!);
+	assert.ok(cleared.text.includes("已清除 volcengine"));
+	assert.equal(cleared.kind, NOTIFY_KIND.INFO);
 	assert.equal(h.state.degraded.volcengine, undefined);
-	assert.equal(h.statuses.at(-1), "→ volcengine/deepseek-v4.1-flash", "页脚回到主用目标");
-	assert.ok(h.router.reset(h.models[0]!).includes("已清除 volcengine"));
+	assert.equal(h.statuses.at(-1), "⓪ volcengine/deepseek-v4.1-flash", "页脚回到档位 0 的目标");
+	assert.ok(h.router.reset(h.models[0]!).text.includes("已清除 volcengine"));
 });
 
-test("statusLines：头部 + 各模型 + 未知子命令 + 过期提示", () => {
+test("statusLines：头部 + 各模型 + 未知子命令", () => {
 	const h = makeHarness({
 		models: [
 			{ id: "a", chain: ["volcengine/a", "workbuddy/a"] },
@@ -469,15 +474,15 @@ test("statusLines：头部 + 各模型 + 未知子命令 + 过期提示", () => 
 			openrouter: { level: 1, until: NOW - 1, reason: "AccountQuotaExceeded", at: NOW - 10 },
 		},
 	});
-	const lines = h.router.statusLines({ selection: "yansongda/a", target: h.models[1]!, unknown: "nope" });
+	const lines = h.router.statusLines({ selection: "yansongda/a", unknown: "nope" });
 	const text = lines.join("\n");
 	assert.ok(text.includes("当前: yansongda/a"), text);
 	assert.ok(text.includes("配置: "), text);
 	assert.ok(text.includes("状态文件: "), text);
-	assert.ok(text.includes("未知子命令：nope"), text);
-	assert.ok(text.includes("  状态: 降级 level=1（workbuddy/a）"), text);
-	assert.ok(text.includes("  状态: 已过期（下一请求尝试主用）"), text);
-	assert.equal(lines.at(-1), "提示: 状态已过期，下一请求会自动尝试主用");
+	assert.ok(text.includes("未知子命令: nope"), text);
+	assert.ok(text.includes("  状态: ① workbuddy/a"), text);
+	assert.ok(text.includes("  状态: 已过期（下一请求回到 ⓪ openrouter）"), text);
+	assert.equal(lines.at(-1), "  状态: 已过期（下一请求回到 ⓪ openrouter）", "staleHint 已删除：最后一行就是该模型的状态行");
 });
 
 // ---------------------------------------------------------------------------

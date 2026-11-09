@@ -129,9 +129,8 @@ test("clampDegradeMs：只钳上界（小值原样保留）", () => {
 	assert.equal(clampDegradeMs(7_200_000, 3_600_000), 3_600_000);
 });
 
-test("formatClock：full 与 short 两种形态", () => {
+test("formatClock：统一 YYYY-MM-DD HH:mm", () => {
 	const ts = new Date(2026, 9, 28, 23, 5).getTime();
-	assert.equal(formatClock(ts), new Date(ts).toLocaleString());
-	assert.equal(formatClock(ts, "short"), "10-28 23:05");
-	assert.equal(formatClock(new Date(2026, 0, 3, 4, 5).getTime(), "short"), "01-03 04:05");
+	assert.equal(formatClock(ts), "2026-10-28 23:05");
+	assert.equal(formatClock(new Date(2026, 0, 3, 4, 5).getTime()), "2026-01-03 04:05");
 });

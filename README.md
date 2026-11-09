@@ -11,7 +11,7 @@ It registers a virtual model for every configured entry (mounted under the `yans
 - **Only quota-class errors trigger fallback**: transient 429 rate limits, 5xx, and network errors are left alone and handed back to Pi's own retry.
 - **Two trigger paths**: the `retry` fast path (retryable errors); the `agent_before_settle` backstop (non-retryable errors — the failed message is dropped and the run continues once).
 - **Cache-friendly**: `retry` stays on the same level, `continuation` reuses the previous physical model, so the prompt cache / thinking signature is invalidated as rarely as possible.
-- **Explainable**: a notify message, plus a footer that **permanently shows the current target physical model** (`→` while the chain's first provider is in use; `↓` plus the earliest recovery time and the provider it belongs to once degraded), plus a visible transcript entry (prefix `[chain]`, **never sent to the model context**).
+- **Explainable**: a notify message, plus a footer that **permanently shows the current target physical model** (`⓪` while the chain's first provider is in use; a level badge such as `①` plus the earliest recovery time and the provider it belongs to once degraded), plus a visible transcript entry (prefix `[pi-provider-chain]`, **never sent to the model context**).
 - **Automatic recovery**: the degradation window is parsed from the `reset at ...` in the error, falling back to a default duration; once the window expires, the first successful primary request reports recovery.
 - **Zero runtime dependencies**: only the host packages Pi provides (as peers), no transitive dependencies.
 
@@ -93,7 +93,7 @@ Put this in `~/.pi/agent/settings.json` (or `$PI_CODING_AGENT_DIR/settings.json`
 | Command | Description |
 | --- | --- |
 | `/chain` or `/chain status` | Currently selected model, config and state file paths, and every virtual model's chain and degradation state (subcommands are completed) |
-| `/chain degrade [duration]` | Manually fall back to the first backup (`30m` / `2h` / `1d`; defaults to `defaultDegradeMs`, capped by `maxDegradeMs`) |
+| `/chain degrade [duration]` | Manually fall back to `①` (the first backup; `30m` / `2h` / `1d`; defaults to `defaultDegradeMs`, capped by `maxDegradeMs`) |
 | `/chain reset` | Clear the degradation state of the provider the current model belongs to (aliases `primary` / `clear`) |
 | `/chain reload` | Reload the extension and config (equivalent to `/reload`) |
 
@@ -134,7 +134,7 @@ return the physical model + thinking level (the assistant message records the ph
 
 Non-retryable quota errors (such as a 403 subscription expiry) go through the `agent_before_settle` backstop: on a match it writes the degraded state first, then drops that failed message and continues the run once; if the entry holding the failed message cannot be located (so it cannot be dropped), the state is still written so the next request goes to a backup.
 
-The footer permanently shows the target physical model of the **currently selected model** (`→ volcengine/…` while the chain's first provider is in use; `↓ workbuddy/… · 10-28 23:59 恢复 volcengine` while degraded — the timestamp is the earliest recovery among the chain's active degrade entries and the trailing name is the provider it belongs to) — degradation info for other models is listed in full by `/chain status`. Transcript entries are prefixed with `[chain]` and come in three visible kinds: degraded (`kind: "degrade"`, with the limited provider `from`, the `reason`, and the trigger path `trigger`; the same sentence as the notify message), recovered (`kind: "recover"`), and routing error (`kind: "error"`, which falls back to the primary but leaves the exception in the transcript for troubleshooting).
+The footer permanently shows the target physical model of the **currently selected model** (`⓪ volcengine/…` while the chain's first provider is in use; `① workbuddy/… · volcengine 2026-10-28 23:59 恢复` while degraded — the badge is the chain slot, the timestamp is the earliest recovery among the chain's active degrade entries and the preceding name is the provider it belongs to; all timestamps are `YYYY-MM-DD HH:mm`) — degradation info for other models is listed in full by `/chain status`. Transcript entries are prefixed with `[pi-provider-chain]` and come in three visible kinds: degraded (`kind: "degrade"`, with the limited provider `from`, the `reason`, and the trigger path `trigger`; the same sentence as the notify message), recovered (`kind: "recover"`; the same sentence as the notify message), and routing error (`kind: "error"`, which falls back to the chain's first provider but leaves the exception in the transcript for troubleshooting).
 
 ## Development
 

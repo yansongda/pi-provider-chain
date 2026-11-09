@@ -11,7 +11,7 @@
 - **只对额度类错误降级**：429 瞬时限流、5xx、网络错误不干预，交回 Pi 自身重试。
 - **两条触发路径**：`retry` 快路径（可重试错误）；`agent_before_settle` 兜底路径（不可重试错误，剔除失败消息后续跑一次）。
 - **保缓存**：`retry` 同档位、`continuation` 沿用上一物理模型，尽量避免 prompt cache / 思考签名失效。
-- **可解释**：notify 提示 + 页脚**常驻显示当前目标物理模型**（用链路第一个 provider 时 `→`，降级后 `↓` 并给出最早恢复时间与所属 provider）+ 转录内可见条目（前缀 `[chain]`，**不进模型上下文**）。
+- **可解释**：notify 提示 + 页脚**常驻显示当前目标物理模型**（档位 0 用 `⓪`；降级后改用 `①` 等档位徽标并给出最早恢复时间与所属 provider）+ 转录内可见条目（前缀 `[pi-provider-chain]`，**不进模型上下文**）。
 - **自动恢复**：降级窗口按错误里的 `reset at ...` 解析，解析不到用默认时长；窗口过期后首次主用成功即提示恢复。
 - **零运行时依赖**：只用 Pi 提供的 host 包（peer），不引入任何传递依赖。
 
@@ -93,7 +93,7 @@ pi list
 | 命令 | 说明 |
 | --- | --- |
 | `/chain` 或 `/chain status` | 当前选中模型、配置与状态文件路径、每个虚拟模型的链路与降级状态（子命令有补全） |
-| `/chain degrade [时长]` | 手动降级到第 1 档备用（`30m` / `2h` / `1d`，默认 `defaultDegradeMs`，上限 `maxDegradeMs`） |
+| `/chain degrade [时长]` | 手动降级到 `①`（第一后备）（`30m` / `2h` / `1d`，默认 `defaultDegradeMs`，上限 `maxDegradeMs`） |
 | `/chain reset` | 清除当前模型所属 provider 的降级状态（别名 `primary` / `clear`） |
 | `/chain reload` | 重新加载扩展与配置（等价 `/reload`） |
 
@@ -134,7 +134,7 @@ pi list
 
 不可重试的额度错误（如 403 订阅过期）由 `agent_before_settle` 兜底：命中后先写入降级状态，再剔除这条失败消息并续跑一次；若定位不到失败消息所在的 entry（无法剔除），仍会写入状态，让下一次请求走备用。
 
-页脚常驻显示**当前选中模型**的目标物理模型（用链路第一个 provider 时 `→ volcengine/…`；降级中 `↓ workbuddy/… · 10-28 23:59 恢复 volcengine`，时间取该链路仍活跃条目里**最早恢复**的那条、末尾的 provider 即该窗口所属方），其它模型的降级信息由 `/chain status` 全量展示；转录条目前缀为 `[chain]`，共三种可见条目：降级（`kind: "degrade"`，含受限 provider `from`、原因 `reason` 与触发路径 `trigger`；文案与 notify 同一句）、恢复（`kind: "recover"`）、路由异常（`kind: "error"`，回落主用但把异常留在转录里便于排查）。
+页脚常驻显示**当前选中模型**的目标物理模型（档位 0 时为 `⓪ volcengine/…`；降级中为 `① workbuddy/… · volcengine 2026-10-28 23:59 恢复`，徽标即链路档位，时间取该链路仍活跃条目里**最早恢复**的那条、前面的 provider 即该窗口所属方；所有时间统一 `YYYY-MM-DD HH:mm`），其它模型的降级信息由 `/chain status` 全量展示；转录条目前缀为 `[pi-provider-chain]`，共三种可见条目：降级（`kind: "degrade"`，含受限 provider `from`、原因 `reason` 与触发路径 `trigger`；文案与 notify 同一句）、恢复（`kind: "recover"`；文案与 notify 同一句）、路由异常（`kind: "error"`，回落链路第一个 provider 但把异常留在转录里便于排查）。
 
 ## 开发
 
