@@ -1,6 +1,6 @@
 English | [简体中文](README.zh-CN.md)
 
-# pi-provider-chain
+# @yansongda/pi-provider-chain
 
 An extension for [Pi](https://pi.dev): **virtual models + automatic fallback when quota runs out**.
 
@@ -19,14 +19,16 @@ It registers a virtual model for every configured entry (mounted under the `yans
 
 ```bash
 # Install from npm
-pi install npm:pi-provider-chain
+pi install npm:@yansongda/pi-provider-chain
 
 # Local path (for development; changes need no reinstall)
 pi install /Users/yansongda/000-Coding/pi-provider-chain
 pi list
 ```
 
-After installing, configure `~/.pi/agent/provider-chain.json` (or `$PI_CODING_AGENT_DIR/provider-chain.json`); a complete example lives in [`examples/provider-chain.json`](examples/provider-chain.json) and field descriptions in [`examples/README.md`](examples/README.md). Run `/reload` or start a new session for changes to take effect. With pi-subagents, the child session also has to load this extension (one `npm:pi-provider-chain` line is enough) — see [Use with pi-subagents](#use-with-pi-subagents).
+> Earlier releases used the unscoped `pi-provider-chain`; the scoped package above is the current distribution.
+
+After installing, configure `~/.pi/agent/provider-chain.json` (or `$PI_CODING_AGENT_DIR/provider-chain.json`); a complete example lives in [`examples/provider-chain.json`](examples/provider-chain.json) and field descriptions in [`examples/README.md`](examples/README.md). Run `/reload` or start a new session for changes to take effect. With pi-subagents, the child session also has to load this extension (one `npm:@yansongda/pi-provider-chain` line is enough) — see [Use with pi-subagents](#use-with-pi-subagents).
 
 ## Configuration
 
@@ -72,12 +74,12 @@ Virtual models are registered by this extension when it loads. A foreground chil
 ```json
 {
   "subagents": {
-    "defaultSubagentOnlyExtensions": ["npm:pi-provider-chain"]
+    "defaultSubagentOnlyExtensions": ["npm:@yansongda/pi-provider-chain"]
   }
 }
 ```
 
-Put this in `~/.pi/agent/settings.json` (or `$PI_CODING_AGENT_DIR/settings.json`). Values go through Pi's package-source resolution: `npm:pi-provider-chain` is installed from npm into `<agentDir>/tmp/extensions/npm/<hash>/` on the first child launch and reused — **no path to remember**; an extension file path (absolute, `~/` expanded) works too.
+Put this in `~/.pi/agent/settings.json` (or `$PI_CODING_AGENT_DIR/settings.json`). Values go through Pi's package-source resolution: `npm:@yansongda/pi-provider-chain` is installed from npm into `<agentDir>/tmp/extensions/npm/<hash>/` on the first child launch and reused — **no path to remember**; an extension file path (absolute, `~/` expanded) works too.
 
 - **Use a path for local development**: the `npm:` form loads the **published copy** from npm, which is not the same tree as a `pi install <local path>` working copy and leads to parent/child version drift; then use the absolute path to `extensions/provider-chain.ts` in the repository.
 - The `npm:` form needs network access for that first install; `PI_OFFLINE=1` **silently skips** the source (the child gets no extension), so use a path in that case.

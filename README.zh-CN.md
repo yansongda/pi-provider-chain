@@ -1,6 +1,6 @@
 [English](README.md) | 简体中文
 
-# pi-provider-chain
+# @yansongda/pi-provider-chain
 
 给 [Pi](https://pi.dev) 的扩展：**虚拟模型 + 额度耗尽自动降级**。
 
@@ -19,14 +19,16 @@
 
 ```bash
 # 从 npm 安装
-pi install npm:pi-provider-chain
+pi install npm:@yansongda/pi-provider-chain
 
 # 本地路径（开发用，改动无需重新安装）
 pi install /Users/yansongda/000-Coding/pi-provider-chain
 pi list
 ```
 
-安装后配置 `~/.pi/agent/provider-chain.json`（或 `$PI_CODING_AGENT_DIR/provider-chain.json`）；完整示例见 [`examples/provider-chain.json`](examples/provider-chain.json)，字段说明见 [`examples/README.md`](examples/README.md)。改完 `/reload` 或新开 session 生效。用 pi-subagents 时还需让子会话加载本扩展（一行 `npm:pi-provider-chain` 即可），见[与 pi-subagents 配合](#与-pi-subagents-配合)。
+> 早期版本发布在非 scoped 的 `pi-provider-chain` 上；当前分发名是上面的 scoped 包。
+
+安装后配置 `~/.pi/agent/provider-chain.json`（或 `$PI_CODING_AGENT_DIR/provider-chain.json`）；完整示例见 [`examples/provider-chain.json`](examples/provider-chain.json)，字段说明见 [`examples/README.md`](examples/README.md)。改完 `/reload` 或新开 session 生效。用 pi-subagents 时还需让子会话加载本扩展（一行 `npm:@yansongda/pi-provider-chain` 即可），见[与 pi-subagents 配合](#与-pi-subagents-配合)。
 
 ## 配置
 
@@ -72,12 +74,12 @@ pi list
 ```json
 {
   "subagents": {
-    "defaultSubagentOnlyExtensions": ["npm:pi-provider-chain"]
+    "defaultSubagentOnlyExtensions": ["npm:@yansongda/pi-provider-chain"]
   }
 }
 ```
 
-写入 `~/.pi/agent/settings.json`（或 `$PI_CODING_AGENT_DIR/settings.json`）。值按 Pi 的包源解析：`npm:pi-provider-chain` 会在首次子代理启动时自动从 npm 安装到 `<agentDir>/tmp/extensions/npm/<hash>/` 并复用，**不用记路径**；也可以写扩展文件路径（绝对路径，支持 `~/`）。
+写入 `~/.pi/agent/settings.json`（或 `$PI_CODING_AGENT_DIR/settings.json`）。值按 Pi 的包源解析：`npm:@yansongda/pi-provider-chain` 会在首次子代理启动时自动从 npm 安装到 `<agentDir>/tmp/extensions/npm/<hash>/` 并复用，**不用记路径**；也可以写扩展文件路径（绝对路径，支持 `~/`）。
 
 - **本地开发请用路径**：`npm:` 形式加载的是 npm 上的**已发布副本**，与 `pi install <本地路径>` 的工作树不是同一份，会出现父子版本漂移；此时写仓库内 `extensions/provider-chain.ts` 的绝对路径。
 - `npm:` 形式首次安装需要联网；`PI_OFFLINE=1` 会**静默跳过**该源（子会话拿不到扩展），此时请改用路径。
