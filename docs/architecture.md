@@ -11,8 +11,8 @@
 | 功能 | 注册**虚拟模型**；请求路由到 `chain[0]`；命中额度/订阅/欠费类错误时沿 `chain[1..]` 降级；状态写入共享文件 |
 | 宿主依赖 | 仅 peer：`@earendil-works/pi-coding-agent`、`@earendil-works/pi-tui`；**运行时零依赖** |
 | 运行环境 | Node ≥ 22.18（`engines`）；开发用 Bun |
-| 包入口 | `package.json` → `pi.extensions: ["./extensions/provider-chain.ts"]` |
-| 发布物 | `files` 白名单：`extensions/`、`src/`、`examples/`、README、CHANGELOG、LICENSE（不含 `tests/`、`docs/`） |
+| 包名与入口 | npm 包 `@yansongda/pi-provider-chain`（scoped，`publishConfig.access: "public"`）；`package.json` → `pi.extensions: ["./extensions/provider-chain.ts"]` |
+| 发布物 | `files` 白名单：`extensions/`、`src/`、`examples/`、`README.md`、`CHANGELOG.md`、`LICENSE`（`README.zh-CN.md` 由 npm 自动收录）；不含 `tests/`、`docs/` |
 
 ## 2. 分层与依赖方向
 
@@ -28,9 +28,12 @@ src/router.ts                  策略层：档位推进 / 路由决策 / 恢复�
    ├── src/config.ts           纯函数 + 只读 IO：配置加载与校验
    ├── src/transcript.ts       纯函数：转录条目契约 + agent_before_settle 的两步查询
    └── src/ui.ts               纯函数：用户文案组装（选模板 + 汇总/截断 + `/chain status` 渲染）
-            ▲
+
+src/command.ts                 纯函数：`/chain` 参数解析（action 归一化 + 时长），供装配层使用
 src/constants.ts               叶子模块：机器常量 + MESSAGES 文案模板（不 import 项目内任何模块、不碰 IO）
 ```
+
+箭头画的是**主要依赖方向**；装配层除 `src/router.ts` 外还直接使用 `src/command.ts`（解析命令参数）、`src/state.ts`（事件钩子读写状态）、`src/transcript.ts`（定位失败消息）与 `src/ui.ts`（条目渲染文案），这些模块本身仍不接触宿主类型。
 
 依赖规则：
 
@@ -200,5 +203,8 @@ A→E 依次执行，前一步给出可用模型就返回：
 ## 10. 发布
 
 - 发布物由 `files` 白名单控制；`tests/`、`docs/` 不进包（`bun run pack` 可核对）。
-- 推 tag `v<version>` 触发 `.github/workflows/release.yml`：先校验 tag 与 `package.json` 版本一致，再以 OIDC `--provenance` 发布到 npm。
+- 包名 `@yansongda/pi-provider-chain`（scoped，`publishConfig.access: "public"`）。旧的非 scoped 包 `pi-provider-chain` 停更，用 `npm deprecate` 指向新包：npm 不支持包改名，迁移只能是「新包 + 弃用旧包」。
+- 推 tag `v<version>` 触发 `.github/workflows/release.yml`：先校验 tag↔`package.json` 版本一致，再 run `typecheck` / `test` / `test:node` / `npm pack --dry-run`，最后 `npm publish --ignore-scripts --provenance --access public --tag latest|next`（版本号含 `-` 时打 `next`）。
+- 鉴权是 **OIDC Trusted Publishing**（`permissions.id-token: write`，仓库不需要 `NPM_TOKEN`）。npm 侧要求该包**已存在**并已配置 GitHub Actions / 仓库 `yansongda/pi-provider-chain` / workflow 文件名 `release.yml`，因此**新包的首发不能走 CI**（npm 上还没有这个包），需先手动发布一次（workflow 对已发布版本会 403）。
+- workflow 只发布、**不创建 GitHub Release**：notes 由发版流程复用改动清单生成后 `gh release create`。
 - 版本号与 CHANGELOG 由发版流程统一处理（`.agents/skills/release/SKILL.md`），日常改动不动它们。
