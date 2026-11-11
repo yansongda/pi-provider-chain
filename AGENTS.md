@@ -105,8 +105,8 @@ CI（`.github/workflows/ci.yml`）：`bun install --frozen-lockfile` → `typech
 
 本机默认模型是虚拟模型（`yansongda/*`）。前台子代理**继承父会话扩展注册的 provider，但不继承 `pi.registerVirtualModel()` 注册的虚拟模型**，因此子会话必须加载 `extensions/provider-chain.ts`，否则子代理启动即模型解析失败（报错会说 `It inherits the providers they registered, but not virtual models registered with pi.registerVirtualModel().`）。
 
-- 写在 settings 里的值按 Pi 的包源解析：`subagents.defaultSubagentOnlyExtensions: ["npm:pi-provider-chain"]` 会在首次子代理启动时自动装到 `<agentDir>/tmp/extensions/npm/<hash>/` 并复用（不用记路径）；也可以写扩展文件路径。
-- **本机现状**：settings 指向本仓库的 `extensions/provider-chain.ts`（本地开发时父子跑同一份工作树）。如果改成 `npm:pi-provider-chain`，子会话加载的是 npm 上的**已发布副本**，开发期会出现父子版本漂移，改完代码需先发版才对子代理生效。
+- 写在 settings 里的值按 Pi 的包源解析：`subagents.defaultSubagentOnlyExtensions: ["npm:@yansongda/pi-provider-chain"]` 会在首次子代理启动时自动装到 `<agentDir>/tmp/extensions/npm/<hash>/` 并复用（不用记路径）；也可以写扩展文件路径。
+- **本机现状**：settings 指向本仓库的 `extensions/provider-chain.ts`（本地开发时父子跑同一份工作树）。如果改成 `npm:@yansongda/pi-provider-chain`，子会话加载的是 npm 上的**已发布副本**，开发期会出现父子版本漂移，改完代码需先发版才对子代理生效。
 - 该键只给子会话**追加**加载，**不关闭** ambient 扩展发现；`subagents.defaultExtensions` 一旦存在就会关闭，别用。
 - 离线时注意：`npm:` 形式首次安装需要联网，`PI_OFFLINE=1` 会**静默跳过**该源（子会话拿不到扩展却报模型解析失败），调试时优先用路径形式。
 - 备选：agent frontmatter 的 `subagentOnlyExtensions:`（追加）或 `extensions:`（**出现即关闭**该子会话的 ambient 扩展发现，包括 `[]`）；`async: true` 的后台子代理默认加载 ambient 扩展，通常无需配置。

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.0 - 2026-11-11
+
+npm 分发名迁移到 scoped 包 `@yansongda/pi-provider-chain`（旧的非 scoped `pi-provider-chain` 停更，发布后弃用并指向新包）；扩展代码与运行时行为不变。
+
+### 变更
+
+- `package.json`：`name` → `@yansongda/pi-provider-chain`；新增 `publishConfig.access: "public"`（scoped 包默认 restricted，避免误发私有）
+- 安装/升级命令改为 `pi install npm:@yansongda/pi-provider-chain`；`README.md` / `README.zh-CN.md` 标题、安装小节与 pi-subagents 片段同步，并补旧包名迁移说明；`examples/README.md` 同步
+- 转录条目前缀保持 `[pi-provider-chain]`，`/chain` 命令、配置文件名与状态文件路径均不变；旧会话条目渲染不受影响
+- 新增 `docs/2026-11-11-npm-scope-migration.md`（迁移决策、首发路径、旧包处置与失效条件）
+
+### 工程
+
+- `.agents/skills/release/SKILL.md`：包名事实表、前置检查与发布后核验命令、首发特例同步新包名，并注明 Trusted Publisher 的 `Repository` 仍是 GitHub 仓库名 `pi-provider-chain`
+- `AGENTS.md`、`docs/architecture.md` 同步 `npm:` 包源示例
+
 ## 0.2.1 - 2026-10-16
 
 页脚改为 `→` / `↓` 区分档位、恢复时间取链路内最早并点名所属 provider；补齐文档体系（docs 索引、架构文档、AGENTS.md）。

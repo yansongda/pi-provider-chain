@@ -15,9 +15,11 @@ pi-provider-chain 的受控发版流程：**人工把三道闸门**（版本号�
 
 ### 本仓库的自动化事实（先读，别凭印象）
 
+> 2026-11-11 起分发名迁到 `@yansongda/pi-provider-chain`（旧包 `pi-provider-chain` 停更，迁移完成后在 npm 上 deprecated 指向新包）；**GitHub 仓库名不变**，仍为 `pi-provider-chain`。新包在 npm 上属于新包，首发走「首次发布特例」。
+
 | 环节 | 事实 |
 |---|---|
-| 包 | npm 公开包 `pi-provider-chain`（unscoped） |
+| 包 | npm 公开包 `@yansongda/pi-provider-chain`（scoped，`publishConfig.access: "public"`） |
 | 测试 CI | `.github/workflows/ci.yml`：push main + PR → `bun run typecheck`、`bun run test`；另有 Node 24 job 跑 `npm run test:node` |
 | 发布 CI | `.github/workflows/release.yml`：push tag `v*` → 校验 tag↔version → 选 dist-tag → typecheck/test/test:node → `npm pack --dry-run` → `npm publish --ignore-scripts --provenance --access public --tag <dist-tag>` |
 | 发布鉴权 | **OIDC Trusted Publishing**（`permissions.id-token: write`），仓库不再需要 `NPM_TOKEN` secret |
@@ -41,7 +43,7 @@ git status --short                  # 必须为空
 git branch --show-current           # 必须 main
 gh auth status                      # 必须已登录（repo 权限）
 git describe --tags --abbrev=0      # 有 tag：上次版本；报 "No names found"：首次发版
-npm view pi-provider-chain version  # 有值：包已存在（OIDC 可用）；404：尚未发布 → 见「首次发布特例」
+npm view @yansongda/pi-provider-chain version  # 有值：包已存在（OIDC 可用）；404：尚未发布 → 见「首次发布特例」
 date +%F                            # CHANGELOG 用当天日期 YYYY-MM-DD
 ```
 
@@ -57,7 +59,7 @@ date +%F                            # CHANGELOG 用当天日期 YYYY-MM-DD
 | Workflow filename | `release.yml`（只写文件名，含 `.yml`，大小写敏感） |
 | Allowed actions | 必须允许 **`npm publish`**（默认只放开 stage publish，会发布失败） |
 
-- 无法用命令查询该配置（npm 无公开 API）→ 由用户在 npm 包设置页核对；agent 只读检查 `npm view pi-provider-chain version` 是否存在。
+- 无法用命令查询该配置（npm 无公开 API）→ 由用户在 npm 包设置页核对；agent 只读检查 `npm view @yansongda/pi-provider-chain version` 是否存在。
 - 另外要求：npm CLI ≥ 11.5.1、Node ≥ 22.14（workflow 用 Node 24，满足）；`package.json` 的 `repository.url` 必须与 GitHub 仓库一致（本仓库已一致）。
 - **新配置的 Trusted Publisher 必须在 2 天内完成一次成功发布**，否则配置过期，只能删除重建。
 - 兜底方案（若暂不配 OIDC）：给 workflow 加回 `env: NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` 并在仓库配置 secret；本 skill 默认走 OIDC，改用 token 后需要在 README 与本文同步说明。
@@ -222,7 +224,7 @@ git grep -n "<旧版本>" -- .     # 兜底：找出所有残留引用
 
 1. `package.json` → `version`（**决定 npm 发布版本与 CI 的 tag 校验**）
 2. `CHANGELOG.md` → 新增 `## <NEW> - <YYYY-MM-DD>` 段落（按 2.1 / 2.2 生成）
-3. `README.md` / `README.zh-CN.md` → **不写版本号**（约定：安装小节固定 `pi install npm:pi-provider-chain`），发版时不改 README；若发现残留 `@X.Y.Z` 直接删掉
+3. `README.md` / `README.zh-CN.md` → **不写版本号**（约定：安装小节固定 `pi install npm:@yansongda/pi-provider-chain`），发版时不改 README；若发现残留 `@X.Y.Z` 直接删掉
 4. `git grep` 兜底结果里其余需要跟版本走的位置（历史设计文档 `docs/*.md` 属历史记录，**不改**）
 
 ### Step 3：本地四道验收（CI 等价，全绿才继续）
@@ -326,17 +328,17 @@ git push origin vX.Y.Z        # 若本地只有一个新 tag，git push origin m
 gh run list --workflow=release.yml --limit 1
 gh run watch <run-id> --exit-status          # 失败时：gh run view <run-id> --log-failed
 
-npm view pi-provider-chain version                       # 必须等于 X.Y.Z
-npm view pi-provider-chain dist-tags --json               # latest（或预发布时的 next）应指向 X.Y.Z
-npm view pi-provider-chain@X.Y.Z dist.tarball dist.integrity
-npm view pi-provider-chain@X.Y.Z --json | grep -A5 attestations   # OIDC 发布应带 provenance
+npm view @yansongda/pi-provider-chain version                       # 必须等于 X.Y.Z
+npm view @yansongda/pi-provider-chain dist-tags --json               # latest（或预发布时的 next）应指向 X.Y.Z
+npm view @yansongda/pi-provider-chain@X.Y.Z dist.tarball dist.integrity
+npm view @yansongda/pi-provider-chain@X.Y.Z --json | grep -A5 attestations   # OIDC 发布应带 provenance
 ```
 
 **补充产物核验（推荐）：**
 
 ```bash
-cd /tmp && npm pack pi-provider-chain@X.Y.Z
-tar -tzf pi-provider-chain-X.Y.Z.tgz | sort | head -40
+cd /tmp && npm pack @yansongda/pi-provider-chain@X.Y.Z
+tar -tzf yansongda-pi-provider-chain-X.Y.Z.tgz | sort | head -40
 # 必须含 package/extensions/provider-chain.ts、package/src/*；不应含 tests/、docs/
 ```
 
@@ -405,9 +407,11 @@ git remote prune origin
 | Step 2 的 diff 清单没落盘就合并了 PR | 从 CHANGELOG 段落的条目反查 diff 补做清单（仍以 diff 为准），或补跑 Step 2.1，再生成 notes |
 | 预发布把 dist-tag 打成 `next`，`latest` 未变 | 预期行为；需要切换时用 `npm dist-tag` 手动调整（要 npm 侧 dist-tag 权限） |
 | 发布后才发现 CHANGELOG 写错 | 不改已发布内容；在下一版 CHANGELOG 里更正（如需可 `gh release edit vX.Y.Z --notes-file …` 修公开 notes） |
-| 已发布版本有严重问题 | `npm deprecate pi-provider-chain@X.Y.Z "原因"`（用户执行），随后尽快发 patch |
+| 已发布版本有严重问题 | `npm deprecate @yansongda/pi-provider-chain@X.Y.Z "原因"`（用户执行），随后尽快发 patch |
 
-## 首次发布特例（`npm view pi-provider-chain version` 返回 404 时适用）
+## 首次发布特例（`npm view @yansongda/pi-provider-chain version` 返回 404 时适用）
+
+> 2026-11-11 的包名迁移同样落在这里：`@yansongda/pi-provider-chain` 是 npm 上的新包（旧包无法改名，只能弃用），首次发布必须本地手动完成。Trusted Publisher 的 `Repository` 字段填 **GitHub 仓库名** `pi-provider-chain`（与 npm 包名无关）。
 
 **关键约束：OIDC Trusted Publishing 要求 npm 上包已存在**（包设置页无法访问，首次 CI 发布必然 404/ENEEDAUTH）→ **首发必须在本地手动完成一次**。
 
@@ -420,7 +424,7 @@ git remote prune origin
 3. **随后 2 天内**让下一版走 `tag → CI` 流程（Step 1→Step 11），既验证发布链路，也避免 Trusted Publisher 配置过期。
 4. 首发版本（如 `0.1.0`）建议**不打 git tag、不建 GitHub Release**：npm 是分发渠道，首个 GitHub Release 从下一版（`0.1.1`/`0.2.0`）由 CI + skill 建立，历史更干净。
    如确需给首发版本建 Release：复用 Step 2 的 diff 清单生成 notes（首发没有前序 tag 不影响这一步，清单已覆盖全部改动），再 `gh release create v0.1.0 --title v0.1.0 --notes-file <notes>`（它会在远端创建 tag；若因此触发一次 publish 失败的 run，属预期噪声——该版本已由本地发布，CI 再发必然 403）。
-5. 首发也要做 Step 9 的核验，并确认两份 README 未写入版本号（安装小节保持 `pi install npm:pi-provider-chain`）。
+5. 首发也要做 Step 9 的核验，并确认两份 README 未写入版本号（安装小节保持 `pi install npm:@yansongda/pi-provider-chain`）。
 
 ## Anti-Patterns & Rationalizations
 
@@ -454,7 +458,7 @@ git remote prune origin
 
 | 步骤 | 命令要点 | 授权 |
 |---|---|---|
-| 前置检查 | `git status --short`、`npm view pi-provider-chain version`、`git describe --tags` | 无需 |
+| 前置检查 | `git status --short`、`npm view @yansongda/pi-provider-chain version`、`git describe --tags` | 无需 |
 | 版本建议 | `git diff $(git describe --tags --abbrev=0)..HEAD` | 需用户确认版本 |
 | diff→清单 | 逐模块 `git diff BASE..HEAD -- <路径>` + 双向核对，清单落 `docs/evidence/`（Step 10 复用） | 无需 |
 | 版本同步 | 按清单写 `CHANGELOG.md` 段落；`package.json` / `git grep <旧版本>`（README 不带版本号，不同步） | 无需 |

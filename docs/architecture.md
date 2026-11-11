@@ -181,7 +181,7 @@ A→E 依次执行，前一步给出可用模型就返回：
 
 1. settings 的 `subagents.defaultSubagentOnlyExtensions`（只给子会话**追加**，不改变 ambient 发现）；
 2. agent frontmatter 的 `subagentOnlyExtensions`（同上）或 `extensions`（**存在即关闭**该子会话的 ambient 发现，`[]` 也一样）；
-3. 值可以是扩展文件路径，也可以是 `npm:pi-provider-chain` 这类包源 —— 后者由 Pi 的包源解析在 `<agentDir>/tmp/extensions/npm/<hash>/` 下临时安装并复用；`PI_OFFLINE=1` 时会**静默跳过**该源；
+3. 值可以是扩展文件路径，也可以是 `npm:@yansongda/pi-provider-chain` 这类包源 —— 后者由 Pi 的包源解析在 `<agentDir>/tmp/extensions/npm/<hash>/` 下临时安装并复用；`PI_OFFLINE=1` 时会**静默跳过**该源；
 4. 宿主扩展可用 `registerRequiredChildExtensions` 让某扩展对所有 launch 生效。
 
 本扩展加载进子会话后：`route()` 与全部事件钩子都在子会话内生效，且状态文件与父会话**同一份**，因此降级档位跨进程共享、父子互相可见（`upsertEntry` 的单调合并保证不回退）。
