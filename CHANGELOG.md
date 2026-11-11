@@ -12,19 +12,28 @@
 
 ## 0.3.0 - 2026-11-11
 
-npm 分发名迁移到 scoped 包 `@yansongda/pi-provider-chain`（旧的非 scoped `pi-provider-chain` 停更，发布后弃用并指向新包）；扩展代码与运行时行为不变。
+分发名迁移到 scoped 包 `@yansongda/pi-provider-chain`；同一窗口内一并发布此前已在 main 积累的用户文案统一（档位徽标 `⓪①`）与运行时硬化。
+
+> 本段于发布后按真实 diff（`v0.2.1..286627c`）补正：原段落只记迁移，漏记同窗口的文案统一与运行时硬化，且「代码与运行时行为不变」「前缀保持 `[pi-provider-chain]`」与 diff 不符。
 
 ### 变更
 
-- `package.json`：`name` → `@yansongda/pi-provider-chain`；新增 `publishConfig.access: "public"`（scoped 包默认 restricted，避免误发私有）
-- 安装/升级命令改为 `pi install npm:@yansongda/pi-provider-chain`；`README.md` / `README.zh-CN.md` 标题、安装小节与 pi-subagents 片段同步，并补旧包名迁移说明；`examples/README.md` 同步
-- 转录条目前缀保持 `[pi-provider-chain]`，`/chain` 命令、配置文件名与状态文件路径均不变；旧会话条目渲染不受影响
-- 新增 `docs/2026-11-11-npm-scope-migration.md`（迁移决策、首发路径、旧包处置与失效条件）
+- `package.json`：`name` → `@yansongda/pi-provider-chain`，新增 `publishConfig.access: "public"`（scoped 包默认 restricted）；旧的非 scoped 包 `pi-provider-chain` 停更
+- 安装/升级命令改为 `pi install npm:@yansongda/pi-provider-chain`；`README.md` / `README.zh-CN.md` 标题与安装小节、`examples/README.md`、`AGENTS.md` 与 pi-subagents 片段同步
+- 用户文案统一为档位徽标：页脚与 `/chain status` 用 `⓪①②…` 表达档位（不再出现 `level=N`，也不再用 `→` / `↓` 当档位前缀）；时间统一 `YYYY-MM-DD HH:mm`（`formatClock` 单参数、不依赖 locale）
+- 转录条目与「未启用」提示前缀统一为 `[pi-provider-chain]`（此前为 `[chain]` / `[provider-chain]`）；降级与恢复的 notify 和转录条目各共用同一句
+- 页脚降级文案改为 `① <目标> · <恢复方> <时间> 恢复`；过期提示只在模型状态行出现一次（删除 `staleHint`），手动降级未改变状态时不再重复回显，改为回显盘上实际生效的更深档位
+- 时长一律钳制到 `[1min, maxDegradeMs]`：`maxDegradeMs` 低于 1min 时按 1min 处理；`defaultDegradeMs`、手动 `/chain degrade <时长>` 与错误文本解析出的恢复时间共用同一规则
+- `stateFile` 相对路径按 `agentDir` 解析（不再按进程 cwd），父子进程/不同 cwd 共享同一份状态；`/chain status` 直接展示实际加载的配置路径
 
 ### 工程
 
-- `.agents/skills/release/SKILL.md`：包名事实表、前置检查与发布后核验命令、首发特例同步新包名，并注明 Trusted Publisher 的 `Repository` 仍是 GitHub 仓库名 `pi-provider-chain`
-- `AGENTS.md`、`docs/architecture.md` 同步 `npm:` 包源示例
+- 状态文件读取只认 `version: 1`：缺失 `version` 或未来版本一律视为空状态；`clearEntry` 在 key 不存在时也执行剪枝
+- 读盘次数收敛：一次操作（写、合并、剪枝、提示、页脚）复用同一份状态快照与同一时钟；`activeEntry(path)` 改为纯函数 `activeEntryOf(state)`
+- `/chain status` 渲染下沉到 `src/ui.ts`（`renderStatusLines`），router 只读状态并转发；`reviewFailure` → `applyFailure`
+- 装配层：`message_end` 用 `stateKeys` Set 判定所属链路、命令补全改为逐词前缀、通知级别由命令结果决定（手动降级成功仍由降级通知承担）
+- 测试：六份测试文件 +292/−107 行，新增圈码徽标边界、`version` 校验、1min 下限、相对 `stateFile`、剪枝、`renderStatusLines` 渲染与更深档位保留等用例
+- 文档：新增日期化设计记录（文案统一、运行时硬化、npm scope 迁移）；`.agents/skills/release/SKILL.md` 同步包名事实表、发布核验命令与首发特例；`docs/architecture.md`、`AGENTS.md` 同步 `npm:` 包源示例
 
 ## 0.2.1 - 2026-10-16
 
