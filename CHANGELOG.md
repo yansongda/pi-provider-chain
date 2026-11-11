@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.1 - 2026-11-11
+
+文档收束：移除日期化设计记录与 docs 索引，架构文档按当前实现校正；扩展代码与运行时行为不变。
+
+### 工程
+
+- 删除 `docs/README.md` 索引与 4 份日期化设计记录（`docs/2026-10-16-footer-recovery-and-icons.md`、`docs/2026-11-09-unified-messages.md`、`docs/2026-11-10-runtime-hardening.md`、`docs/2026-11-11-npm-scope-migration.md`）：`docs/` 仅保留 `architecture.md`，历史内容可从 git 历史取回
+- `docs/architecture.md` 按当前实现校正：补 scoped 包名与 `publishConfig.access`、按真实 `files` 白名单列出发布物；分层图补 `src/command.ts` 与装配层直用的模块；发布段落重写为 `release.yml` 的实际步骤与 OIDC Trusted Publishing 前置条件（包需已存在、workflow 不创建 GitHub Release、旧包弃用迁移）
+- `AGENTS.md` 与 `README.md` / `README.zh-CN.md`：仓库结构块去掉已删除的 `docs/README.md` / `docs/YYYY-MM-DD-*.md`，文档分工改为直接指向 `docs/architecture.md`
+
 ## 0.3.0 - 2026-11-11
 
 npm 分发名迁移到 scoped 包 `@yansongda/pi-provider-chain`（旧的非 scoped `pi-provider-chain` 停更，发布后弃用并指向新包）；扩展代码与运行时行为不变。
